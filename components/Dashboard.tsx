@@ -1,15 +1,26 @@
-// components/Dashboard.tsx - Enhanced with dynamic data updates
+// components/Dashboard.tsx
 "use client";
 
-import { Card, CardContent } from "@/components/ui/card";
 import { PersonalityKey } from "@/lib/assistantService";
 import { getUserProfileById } from "@/lib/auth/authService";
+import { db } from "@/lib/firebase/clientApp";
 import type { Meal } from "@/lib/firebase/models/meal";
-import { LogOut, RefreshCw, User } from "lucide-react";
+import {
+  collection,
+  getDocs,
+  onSnapshot,
+  orderBy,
+  query,
+  Timestamp,
+  where,
+} from "firebase/firestore";
+import { LogOut, Plus, RefreshCw, User } from "lucide-react";
 import { signOut, useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import AddMealModal from "./AddMealModal";
+import CaloriesStatusBar from "./CaloriesStatusBar";
 import ChatContainer from "./ChatContainer";
 import TodaysMeals from "./TodaysMeals";
 import { Button } from "./ui/button";
@@ -46,7 +57,10 @@ const Dashboard = ({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [loadingError, setLoadingError] = useState<string | null>(null);
-  const [lastRefresh, setLastRefresh] = useState(Date.now()); // For forcing re-fetches
+  const [showAddMealModal, setShowAddMealModal] = useState(false);
+
+  // Keep track of the current unsubscribe function
+  const unsubscribeRef = useRef<(() => void) | null>(null);
 
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -56,113 +70,168 @@ const Dashboard = ({
     setMounted(true);
   }, []);
 
-  // Fetch today's meals with dedicated error handling - made into a memoized function
-  // Updated fetchTodaysMeals function for Dashboard.tsx
+  // Helper function to get today's date bounds
+  const getTodayDateBounds = useMemo(() => {
+    const today = new Date();
+    const startOfDay = new Date(new Date().setHours(0, 0, 0, 0));
+    const endOfDay = new Date(new Date().setHours(23, 59, 59, 999));
+    return { startOfDay, endOfDay };
+  }, []);
+
+  // Function to set up Firestore listener
+  const setupFirestoreListener = useCallback(() => {
+    if (!session?.user?.id) return null;
+
+    const { startOfDay, endOfDay } = getTodayDateBounds;
+
+    try {
+      // Clear any existing listener first
+      if (unsubscribeRef.current) {
+        unsubscribeRef.current();
+      }
+
+      // Create a real-time listener for meals
+      const mealsQuery = query(
+        collection(db, "meals"),
+        where("userId", "==", session.user.id),
+        where("date", ">=", startOfDay),
+        where("date", "<=", endOfDay),
+        orderBy("date", "desc")
+      );
+
+      const unsubscribe = onSnapshot(
+        mealsQuery,
+        (snapshot) => {
+          const meals: Meal[] = [];
+          snapshot.forEach((doc) => {
+            const data = doc.data();
+            meals.push({
+              id: doc.id,
+              ...data,
+              date:
+                data.date instanceof Timestamp
+                  ? data.date.toDate()
+                  : new Date(data.date),
+            } as Meal);
+          });
+
+          setTodaysMeals(meals);
+
+          // Calculate calories
+          const totalCalories = meals.reduce(
+            (sum, meal) => sum + (Number(meal.calories) || 0),
+            0
+          );
+
+          setCaloriesConsumed(totalCalories);
+          setCaloriesRemaining(targetCalories - totalCalories);
+          setIsLoading(false);
+          setIsRefreshing(false);
+        },
+        (error) => {
+          console.error("Error in meals listener:", error);
+          setLoadingError("Error getting real-time updates. Please refresh.");
+          setIsLoading(false);
+          setIsRefreshing(false);
+
+          // Fallback to API call if listener fails
+          fetchTodaysMeals();
+        }
+      );
+
+      // Store the unsubscribe function
+      unsubscribeRef.current = unsubscribe;
+      return unsubscribe;
+    } catch (error) {
+      console.error("Error setting up Firestore listener:", error);
+      setLoadingError("Error setting up data connection. Please refresh.");
+      setIsLoading(false);
+      setIsRefreshing(false);
+      return null;
+    }
+  }, [session?.user?.id, targetCalories, getTodayDateBounds]);
+
+  // Setup Firestore real-time listener for meals
+  useEffect(() => {
+    if (!mounted || !session?.user?.id) return;
+
+    setIsLoading(true);
+    const unsubscribe = setupFirestoreListener();
+
+    // Cleanup function
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
+  }, [session?.user?.id, mounted, setupFirestoreListener]);
+
+  // Fetch today's meals with dedicated error handling
   const fetchTodaysMeals = useCallback(async () => {
     if (!session?.user?.id) return;
 
     setIsRefreshing(true);
     try {
       console.log("Fetching meals at:", new Date().toISOString());
+      const { startOfDay, endOfDay } = getTodayDateBounds;
 
-      // Format date as YYYY-MM-DD and add timestamp to prevent caching
-      const today = new Date().toISOString().split("T")[0];
-      const timestamp = Date.now();
+      // Use direct Firestore query instead of API call for better reliability
+      const mealsQuery = query(
+        collection(db, "meals"),
+        where("userId", "==", session.user.id),
+        where("date", ">=", startOfDay),
+        where("date", "<=", endOfDay),
+        orderBy("date", "desc")
+      );
 
-      try {
-        const response = await fetch(
-          `/api/meals?date=${today}&_t=${timestamp}`
-        );
+      const querySnapshot = await getDocs(mealsQuery);
 
-        if (!response.ok) {
-          console.error(
-            "Meals API Error:",
-            response.status,
-            response.statusText
-          );
-          // Don't throw error, just log it and continue with empty array
-          setTodaysMeals([]);
-          setCaloriesConsumed(0);
-          setCaloriesRemaining(targetCalories);
+      const meals: Meal[] = [];
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        meals.push({
+          id: doc.id,
+          ...data,
+          date:
+            data.date instanceof Timestamp
+              ? data.date.toDate()
+              : new Date(data.date),
+        } as Meal);
+      });
 
-          // Show toast message
-          toast.error("Failed to load your meals. Please try again later.");
-          return;
-        }
+      setTodaysMeals(meals);
 
-        const mealsData = await response.json();
-        console.log("Meals data received:", mealsData);
+      // Calculate calories
+      const totalCalories = meals.reduce(
+        (sum, meal) => sum + (Number(meal.calories) || 0),
+        0
+      );
 
-        // Handle empty arrays properly
-        if (Array.isArray(mealsData)) {
-          setTodaysMeals(mealsData);
+      setCaloriesConsumed(totalCalories);
+      setCaloriesRemaining(targetCalories - totalCalories);
 
-          // Calculate calories consumed and remaining
-          const totalCalories = mealsData.reduce(
-            (sum, meal) => sum + (Number(meal.calories) || 0),
-            0
-          );
+      // Success toast notification
+      toast.success("Meal data refreshed successfully");
 
-          console.log("Total calories calculated:", totalCalories);
-          setCaloriesConsumed(totalCalories);
-          setCaloriesRemaining(targetCalories - totalCalories);
-        } else {
-          // If response is not an array, set empty meals
-          setTodaysMeals([]);
-          setCaloriesConsumed(0);
-          setCaloriesRemaining(targetCalories);
-        }
-      } catch (fetchError) {
-        console.error("Error fetching meals:", fetchError);
-        // Set empty meals on error
-        setTodaysMeals([]);
-        setCaloriesConsumed(0);
-        setCaloriesRemaining(targetCalories);
-
-        // Show toast message
-        toast.error("Failed to load your meals. Network error occurred.");
-      }
-
-      // Always try to fetch summary data separately as a fallback
-      try {
-        const summaryResponse = await fetch(
-          `/api/meals?summary=true&date=${today}&_t=${timestamp}`
-        );
-
-        if (summaryResponse.ok) {
-          const summaryData = await summaryResponse.json();
-          console.log("Calories summary:", summaryData);
-
-          if (summaryData && typeof summaryData.consumed === "number") {
-            setCaloriesConsumed(summaryData.consumed);
-            setCaloriesRemaining(targetCalories - summaryData.consumed);
-          }
-        }
-      } catch (summaryError) {
-        console.error("Error fetching calories summary:", summaryError);
-        // Already set fallback values above, so no need to do anything here
-      }
+      // Set up listener again after manual refresh
+      setupFirestoreListener();
     } catch (error) {
       console.error("Error in fetchTodaysMeals:", error);
-
-      // Set empty data
-      setTodaysMeals([]);
-      setCaloriesConsumed(0);
-      setCaloriesRemaining(targetCalories);
-
-      // Show toast message
-      toast.error("Something went wrong while loading your meal data.");
+      toast.error("Something went wrong while refreshing your meal data");
+      setLoadingError("Failed to refresh data. Please try again.");
     } finally {
       setIsRefreshing(false);
     }
-  }, [session?.user?.id, targetCalories]);
+  }, [
+    session?.user?.id,
+    targetCalories,
+    getTodayDateBounds,
+    setupFirestoreListener,
+  ]);
 
-  // Fetch user data including profile and meals
-  const fetchUserData = useCallback(async () => {
+  // Fetch user data including profile
+  const fetchUserProfile = useCallback(async () => {
     if (!session?.user?.id) return;
-
-    setIsLoading(true);
-    setLoadingError(null);
 
     try {
       // Fetch user profile
@@ -180,18 +249,11 @@ const Dashboard = ({
           setTargetCalories(profileData.targetCalories);
         }
       }
-
-      // Fetch today's meals separately to isolate errors
-      await fetchTodaysMeals();
     } catch (error) {
-      console.error("Error fetching user data:", error);
-      setLoadingError(
-        "Failed to load your profile data. Please try refreshing."
-      );
-    } finally {
-      setIsLoading(false);
+      console.error("Error fetching user profile:", error);
+      // Silent fail for profile, we'll use defaults
     }
-  }, [session?.user?.id, fetchTodaysMeals]);
+  }, [session?.user?.id]);
 
   // Initial data loading
   useEffect(() => {
@@ -202,60 +264,35 @@ const Dashboard = ({
     if (status === "unauthenticated") {
       router.push("/auth/signin");
     } else if (status === "authenticated" && session?.user?.id) {
-      fetchUserData();
+      fetchUserProfile();
+      // Note: We don't need to call fetchTodaysMeals here as the Firestore listener will handle it
     }
-  }, [status, router, session, mounted, fetchUserData]);
-
-  // Set up periodic refresh for data
-  useEffect(() => {
-    // Only set up refresh if authenticated and mounted
-    if (!mounted || status !== "authenticated" || !session?.user?.id) return;
-
-    // Refresh data every minute to keep it current
-    const refreshInterval = setInterval(() => {
-      console.log("Auto-refreshing data...");
-      fetchTodaysMeals();
-      setLastRefresh(Date.now());
-    }, 60000); // 1 minute
-
-    return () => clearInterval(refreshInterval);
-  }, [mounted, status, session?.user?.id, fetchTodaysMeals]);
-
-  // Refresh data when tab becomes active
-  useEffect(() => {
-    if (!mounted) return;
-
-    const handleVisibilityChange = () => {
-      if (
-        document.visibilityState === "visible" &&
-        status === "authenticated"
-      ) {
-        console.log("Tab became visible, refreshing data...");
-        fetchTodaysMeals();
-        setLastRefresh(Date.now());
-      }
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () =>
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, [mounted, status, fetchTodaysMeals]);
+  }, [status, router, session, mounted, fetchUserProfile]);
 
   // Handle meal logged from chat or any source
-  const handleMealLogged = useCallback(async () => {
+  const handleMealLogged = useCallback(() => {
     console.log("Meal logged, refreshing data...");
-    await fetchTodaysMeals();
-    setLastRefresh(Date.now());
+    // No need to manually refresh as Firestore listener will update automatically
 
     // If on chat tab, switch to meals tab to show the new meal
     setActiveTab("stats");
-  }, [fetchTodaysMeals]);
+
+    // Show toast notification
+    toast.success("Meal logged successfully!");
+  }, []);
 
   // Handle manual refresh
   const handleRefresh = useCallback(() => {
     console.log("Manual refresh requested");
+
+    // Clear any existing data first to show loading state
+    setIsRefreshing(true);
+
+    // Properly refresh the data
     fetchTodaysMeals();
-    setLastRefresh(Date.now());
+
+    // Show toast notification
+    toast.info("Refreshing meal data...");
   }, [fetchTodaysMeals]);
 
   // Handle weight logged from chat
@@ -267,11 +304,11 @@ const Dashboard = ({
       const profileData = await getUserProfileById(session.user.id);
       if (profileData) {
         setUserProfile(profileData);
+        toast.success("Weight updated successfully!");
       }
     } catch (error) {
       console.error("Error refreshing user profile:", error);
-
-      toast.error("Failed to update your weight information.");
+      toast.error("Failed to update weight information.");
     }
   }, [session?.user?.id]);
 
@@ -283,6 +320,13 @@ const Dashboard = ({
       // Force redirect to homepage on error
       window.location.href = "/";
     }
+  };
+
+  // Handle meal added from modal
+  const handleMealAdded = () => {
+    // This will trigger the Firestore listener to update
+    setShowAddMealModal(false);
+    toast.success("Meal added successfully!");
   };
 
   // Handle hydration properly - don't render until mounted
@@ -340,30 +384,22 @@ const Dashboard = ({
             variant="outline"
             size="sm"
             className="mt-2"
-            onClick={fetchUserData}
+            onClick={() => {
+              setLoadingError(null);
+              setupFirestoreListener();
+            }}
           >
             Retry
           </Button>
         </div>
       )}
 
-      {/* Calories Card */}
-      <Card className="mx-4 my-4">
-        <CardContent className="p-0 flex">
-          <div className="w-1/2 p-4 bg-green-200 dark:bg-green-900 rounded-l-xl">
-            <div className="text-3xl font-bold text-center">
-              {caloriesConsumed}
-            </div>
-            <div className="text-sm text-center">calories today</div>
-          </div>
-          <div className="w-1/2 p-4 rounded-r-xl">
-            <div className="text-3xl font-bold text-center">
-              {caloriesRemaining}
-            </div>
-            <div className="text-sm text-center">calories remaining</div>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Calories Status Bar */}
+      <CaloriesStatusBar
+        caloriesConsumed={caloriesConsumed}
+        targetCalories={targetCalories}
+        className="mx-4 my-4"
+      />
 
       {/* Tab Navigation */}
       <div className="mx-4 mb-2">
@@ -374,25 +410,7 @@ const Dashboard = ({
         >
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="chat">Chat</TabsTrigger>
-            <TabsTrigger value="stats">
-              Today's Meals
-              {activeTab === "stats" && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="ml-2 h-6 w-6"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleRefresh();
-                  }}
-                  disabled={isRefreshing}
-                >
-                  <RefreshCw
-                    className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`}
-                  />
-                </Button>
-              )}
-            </TabsTrigger>
+            <TabsTrigger value="stats">Today's Meals</TabsTrigger>
           </TabsList>
         </Tabs>
       </div>
@@ -411,11 +429,38 @@ const Dashboard = ({
           </div>
         ) : (
           <div className="h-full overflow-y-auto">
+            {/* Actions row with refresh and add buttons */}
+            <div className="flex justify-between items-center mb-4">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setShowAddMealModal(true)}
+                className="flex items-center gap-1"
+              >
+                <Plus className="h-4 w-4" />
+                Add Meal
+              </Button>
+
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleRefresh}
+                disabled={isRefreshing}
+                className="flex items-center gap-1"
+              >
+                <RefreshCw
+                  className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`}
+                />
+                {isRefreshing ? "Refreshing..." : "Refresh"}
+              </Button>
+            </div>
+
+            {/* TodaysMeals component - now without redundant title */}
             <TodaysMeals
               meals={todaysMeals}
               isLoading={isRefreshing}
               onMealDeleted={handleMealLogged}
-              key={`meals-${lastRefresh}`} // Force re-render on refresh
+              showTitle={false}
             />
 
             {userProfile?.currentWeight && userProfile?.targetWeight && (
@@ -461,6 +506,13 @@ const Dashboard = ({
           </div>
         )}
       </div>
+
+      {/* Add Meal Modal */}
+      <AddMealModal
+        open={showAddMealModal}
+        onOpenChange={setShowAddMealModal}
+        onMealAdded={handleMealAdded}
+      />
     </div>
   );
 };

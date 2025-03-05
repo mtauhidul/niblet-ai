@@ -11,7 +11,6 @@ import { signIn, useSession } from "next-auth/react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { FaGoogle } from "react-icons/fa";
 
 export default function SignInPage() {
   const [email, setEmail] = useState("");
@@ -197,13 +196,15 @@ export default function SignInPage() {
               <div className="w-full border-t border-gray-300 dark:border-gray-700"></div>
             </div>
             <div className="relative flex justify-center text-sm">
-              <span className="bg-white dark:bg-gray-800 px-2 text-gray-500 dark:text-gray-400">
-                Or continue with
-              </span>
+              <Link href="/">
+                <a className="bg-white dark:bg-gray-800 px-2 text-gray-500 dark:text-gray-400">
+                  Back to Home
+                </a>
+              </Link>
             </div>
           </div>
 
-          <Button
+          {/* <Button
             type="button"
             variant="outline"
             className="w-full mt-4 flex items-center justify-center gap-2"
@@ -211,7 +212,7 @@ export default function SignInPage() {
             disabled={isLoading}
           >
             <FaGoogle /> Google
-          </Button>
+          </Button> */}
         </CardContent>
       </Card>
     </div>

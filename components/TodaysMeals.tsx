@@ -1,4 +1,4 @@
-// Updated components/TodaysMeals.tsx
+// components/TodaysMeals.tsx
 "use client";
 
 import AddMealModal from "@/components/AddMealModal";
@@ -22,12 +22,14 @@ interface TodaysMealsProps {
   meals: Meal[];
   isLoading?: boolean;
   onMealDeleted?: () => void;
+  showTitle?: boolean; // New prop to control title display
 }
 
 const TodaysMeals = ({
   meals = [],
   isLoading = false,
   onMealDeleted,
+  showTitle = false, // Default to not showing the title
 }: TodaysMealsProps) => {
   const [deletingMealId, setDeletingMealId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -111,9 +113,7 @@ const TodaysMeals = ({
   if (isLoading) {
     return (
       <div>
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="font-bold">Today's Meals</h3>
-        </div>
+        {showTitle && <h3 className="font-bold mb-4">Today's Meals</h3>}
         <Skeleton className="h-16 mb-2" />
         <Skeleton className="h-16 mb-2" />
         <Skeleton className="h-16 mb-2" />
@@ -124,7 +124,7 @@ const TodaysMeals = ({
   if (meals.length === 0) {
     return (
       <div className="text-center py-4">
-        <h3 className="font-bold mb-2">Today's Meals</h3>
+        {showTitle && <h3 className="font-bold mb-2">Today's Meals</h3>}
         <p className="text-gray-500 dark:text-gray-400 mb-4">
           No meals logged today. Start tracking your meals!
         </p>
@@ -148,17 +148,8 @@ const TodaysMeals = ({
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-4">
-        <h3 className="font-bold">Today's Meals</h3>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="flex items-center gap-1"
-          onClick={() => setShowAddMealModal(true)}
-        >
-          <Plus className="h-4 w-4" /> Add
-        </Button>
-      </div>
+      {/* Only show title if explicitly requested */}
+      {showTitle && <h3 className="font-bold mb-4">Today's Meals</h3>}
 
       {sortedMealTypes.map((mealType) => (
         <div key={mealType} className="mb-4">
@@ -258,13 +249,6 @@ const TodaysMeals = ({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {/* Add Meal Modal */}
-      <AddMealModal
-        open={showAddMealModal}
-        onOpenChange={setShowAddMealModal}
-        onMealAdded={handleMealAdded}
-      />
     </div>
   );
 };

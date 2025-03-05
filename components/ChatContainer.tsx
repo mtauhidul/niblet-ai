@@ -1,4 +1,4 @@
-// Updated ChatContainer.tsx with fix for multiple initial messages
+// ChatContainer.tsx
 "use client";
 
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,7 @@ interface Message {
   role: "user" | "assistant" | "system";
   content: string;
   timestamp: Date;
+  imageUrl?: string; // Added for image support
 }
 
 interface ChatContainerProps {
@@ -57,6 +58,11 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   );
   const [error, setError] = useState<string | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
+
+  // Image upload states
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const { data: session } = useSession();
@@ -289,6 +295,105 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
     messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
 
+  // Handle file select for image upload
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file is an image
+    if (!file.type.startsWith("image/")) {
+      setUploadError("Please select an image file");
+      return;
+    }
+
+    // Maximum file size (5MB)
+    const MAX_FILE_SIZE = 5 * 1024 * 1024;
+    if (file.size > MAX_FILE_SIZE) {
+      setUploadError("Image must be less than 5MB");
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+      setUploadError(null);
+
+      // Create a FormData object to send the file
+      const formData = new FormData();
+      formData.append("image", file);
+
+      // Send the image to your API endpoint
+      const response = await fetch("/api/upload-image", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to upload image");
+      }
+
+      const data = await response.json();
+
+      // Add a new message with the image URL
+      if (threadId && assistantId) {
+        // Add user message to UI with image
+        const userMessage: Message = {
+          id: `user-${Date.now()}`,
+          role: "user",
+          content: `[Image uploaded]`,
+          timestamp: new Date(),
+          imageUrl: data.imageUrl, // Store the image URL
+        };
+
+        setMessages((prev) => [...prev, userMessage]);
+
+        // Send message to thread with image reference
+        await addMessageToThread(
+          threadId,
+          `I'm sending you an image. The URL is: ${data.imageUrl}`
+        );
+
+        // Run the assistant to analyze the image
+        setIsTyping(true);
+        const assistantMessages = await runAssistant(
+          threadId,
+          assistantId,
+          aiPersonality,
+          handleToolCalls
+        );
+
+        if (assistantMessages && assistantMessages.length > 0) {
+          // Get the latest message
+          const latestMessage = assistantMessages[assistantMessages.length - 1];
+
+          // Add assistant's response to messages
+          const assistantMessage: Message = {
+            id: latestMessage.id,
+            role: "assistant",
+            content: latestMessage.content,
+            timestamp: latestMessage.createdAt,
+          };
+
+          setMessages((prev) => [...prev, assistantMessage]);
+        }
+        setIsTyping(false);
+      }
+    } catch (error) {
+      console.error("Error uploading image:", error);
+      setUploadError("Failed to upload image. Please try again.");
+    } finally {
+      setIsUploading(false);
+      // Reset the file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  };
+
+  // Trigger file input click
+  const handleCameraClick = () => {
+    fileInputRef.current?.click();
+  };
+
   // Send message to assistant
   const handleSendMessage = async () => {
     if (!inputValue.trim() || !threadId || !assistantId || isTyping) return;
@@ -483,6 +588,15 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
 
   return (
     <div className="flex flex-col h-full">
+      {/* Hidden file input for image upload */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileSelect}
+        accept="image/*"
+        className="hidden"
+      />
+
       {/* Chat Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {/* Initial prompt if no messages */}
@@ -502,6 +616,13 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
           </div>
         )}
 
+        {/* Upload error message */}
+        {uploadError && (
+          <div className="mx-auto bg-red-100 dark:bg-red-900 p-3 rounded-lg text-center">
+            {uploadError}
+          </div>
+        )}
+
         {/* Chat messages */}
         {messages.map((msg) => (
           <div
@@ -516,6 +637,17 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
             )}
           >
             {msg.content}
+
+            {/* Display image if present */}
+            {msg.imageUrl && (
+              <div className="mt-2">
+                <img
+                  src={msg.imageUrl}
+                  alt="Uploaded"
+                  className="max-h-60 rounded-md object-contain"
+                />
+              </div>
+            )}
           </div>
         ))}
 
@@ -557,9 +689,12 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
           <Button
             size="icon"
             variant="outline"
-            disabled={true} // Disabled until image upload feature is implemented
+            onClick={handleCameraClick}
+            disabled={isTyping || isUploading}
           >
-            <Camera className="h-5 w-5" />
+            <Camera
+              className={`h-5 w-5 ${isUploading ? "animate-pulse" : ""}`}
+            />
           </Button>
           <Input
             value={inputValue}
@@ -567,13 +702,13 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
             onKeyDown={handleKeyDown}
             placeholder="Message Nibble..."
             className="flex-1"
-            disabled={isTyping}
+            disabled={isTyping || isUploading}
           />
           <Button
             size="icon"
             variant={isRecording ? "destructive" : "outline"}
             onClick={toggleRecording}
-            disabled={isTyping}
+            disabled={isTyping || isUploading}
           >
             {isRecording ? (
               <MicOff className="h-5 w-5" />
@@ -585,7 +720,11 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
             size="icon"
             onClick={handleSendMessage}
             disabled={
-              !inputValue.trim() || isTyping || !threadId || !assistantId
+              !inputValue.trim() ||
+              isTyping ||
+              !threadId ||
+              !assistantId ||
+              isUploading
             }
           >
             <Send className="h-5 w-5" />
