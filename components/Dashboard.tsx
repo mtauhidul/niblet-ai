@@ -31,6 +31,9 @@ const Dashboard = ({ aiPersonality = "best-friend" }) => {
   }, [status, router]);
 
   // Fetch user data and today's meals
+  // components/Dashboard.tsx
+  // Update the fetchUserData function:
+
   const fetchUserData = async () => {
     setIsLoading(true);
     try {

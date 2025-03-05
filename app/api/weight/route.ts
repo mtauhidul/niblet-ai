@@ -1,29 +1,24 @@
 // app/api/weight/route.ts
-import { PrismaClient } from "@prisma/client";
-import { getServerSession } from "next-auth";
+import { createOrUpdateUserProfile } from "@/lib/firebase/models/user";
+import {
+  getWeightLogsByUser,
+  logWeight,
+} from "@/lib/firebase/models/weightLog";
+import { getToken } from "next-auth/jwt";
 import { NextRequest, NextResponse } from "next/server";
-
-const prisma = new PrismaClient();
 
 // GET weight logs
 export async function GET(request: NextRequest) {
   try {
     // Get session
-    const session = await getServerSession();
+    const token = await getToken({ req: request });
 
-    if (!session?.user?.id) {
+    if (!token?.sub) {
       return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     }
 
     // Get weight logs
-    const weightLogs = await prisma.weightLog.findMany({
-      where: {
-        userId: session.user.id,
-      },
-      orderBy: {
-        date: "desc",
-      },
-    });
+    const weightLogs = await getWeightLogsByUser(token.sub);
 
     return NextResponse.json(weightLogs);
   } catch (error) {
@@ -39,9 +34,9 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     // Get session
-    const session = await getServerSession();
+    const token = await getToken({ req: request });
 
-    if (!session?.user?.id) {
+    if (!token?.sub) {
       return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     }
 
@@ -49,7 +44,7 @@ export async function POST(request: NextRequest) {
     const { weight, date } = await request.json();
 
     // Validate weight
-    if (!weight || isNaN(parseFloat(weight))) {
+    if (!weight || isNaN(parseFloat(weight.toString()))) {
       return NextResponse.json(
         { message: "Valid weight is required" },
         { status: 400 }
@@ -57,22 +52,15 @@ export async function POST(request: NextRequest) {
     }
 
     // Create weight log
-    const weightLog = await prisma.weightLog.create({
-      data: {
-        userId: session.user.id,
-        weight: parseFloat(weight),
-        date: date ? new Date(date) : new Date(),
-      },
-    });
+    const weightLog = await logWeight(
+      token.sub,
+      parseFloat(weight.toString()),
+      date ? new Date(date) : undefined
+    );
 
     // Update current weight in user profile
-    await prisma.userProfile.update({
-      where: {
-        userId: session.user.id,
-      },
-      data: {
-        currentWeight: parseFloat(weight),
-      },
+    await createOrUpdateUserProfile(token.sub, {
+      currentWeight: parseFloat(weight.toString()),
     });
 
     return NextResponse.json(weightLog, { status: 201 });

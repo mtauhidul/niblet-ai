@@ -8,6 +8,7 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  // The app import ensures Firebase is initialized
   return (
     <html lang="en">
       <body>

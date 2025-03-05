@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { registerUser, signInWithGoogle } from "@/lib/auth/authService";
 import { signIn } from "next-auth/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -31,25 +32,14 @@ export default function SignUpPage() {
     setError("");
 
     try {
-      const response = await fetch("/api/auth/register", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          name,
-          email,
-          password,
-        }),
+      // Register with Firebase
+      await registerUser({
+        name,
+        email,
+        password,
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Something went wrong");
-      }
-
-      // Sign in the user
+      // Sign in with NextAuth (this will trigger a session)
       const result = await signIn("credentials", {
         email,
         password,
@@ -61,24 +51,27 @@ export default function SignUpPage() {
       } else {
         router.push("/onboarding");
       }
-    } catch (error) {
-      if (error instanceof Error) {
-        setError(error.message);
-      } else {
-        setError("An unexpected error occurred");
-      }
+    } catch (error: any) {
+      setError(error.message || "An unexpected error occurred");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleGoogleSignIn = () => {
-    signIn("google", { callbackUrl: "/onboarding" });
+  const handleGoogleSignIn = async () => {
+    try {
+      await signInWithGoogle();
+      router.push("/onboarding");
+    } catch (error: any) {
+      setError(error.message || "Failed to sign in with Google");
+    }
   };
 
   return (
+    // Your existing JSX remains the same...
     <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-gray-900 p-4">
       <Card className="w-full max-w-md">
+        {/* Card content remains the same */}
         <CardHeader className="space-y-1 text-center">
           <div className="text-3xl font-bold mb-6">
             niblet<span className="text-blue-400">.ai</span>
@@ -87,6 +80,7 @@ export default function SignUpPage() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Form fields remain the same */}
             <div className="space-y-2">
               <Label htmlFor="name">Name</Label>
               <Input

@@ -1,19 +1,19 @@
 // app/api/user/profile/route.ts
-import { getUserProfile, updateUserProfile } from "@/lib/auth/authService";
-import { getServerSession } from "next-auth";
+import { getUserProfileById, updateUserProfile } from "@/lib/auth/authService";
+import { getToken } from "next-auth/jwt";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(request: NextRequest) {
   try {
     // Get session
-    const session = await getServerSession();
+    const token = await getToken({ req: request });
 
-    if (!session?.user?.id) {
+    if (!token?.sub) {
       return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     }
 
     // Get user profile
-    const userProfile = await getUserProfile(session.user.id);
+    const userProfile = await getUserProfileById(token.sub);
 
     if (!userProfile) {
       return NextResponse.json(
@@ -37,9 +37,9 @@ export async function GET(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     // Get session
-    const session = await getServerSession();
+    const token = await getToken({ req: request });
 
-    if (!session?.user?.id) {
+    if (!token?.sub) {
       return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     }
 
@@ -47,7 +47,7 @@ export async function PATCH(request: NextRequest) {
     const data = await request.json();
 
     // Update user profile
-    const userProfile = await updateUserProfile(session.user.id, data);
+    const userProfile = await updateUserProfile(token.sub, data);
 
     return NextResponse.json(userProfile);
   } catch (error) {

@@ -1,15 +1,10 @@
 // app/api/auth/[...nextauth]/route.ts
-import { PrismaAdapter } from "@auth/prisma-adapter";
-import { PrismaClient } from "@prisma/client";
-import { compare } from "bcrypt";
+import { signInWithEmail } from "@/lib/auth/authService";
 import NextAuth from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
 
-const prisma = new PrismaClient();
-
 const handler = NextAuth({
-  adapter: PrismaAdapter(prisma),
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID as string,
@@ -26,31 +21,22 @@ const handler = NextAuth({
           return null;
         }
 
-        const user = await prisma.user.findUnique({
-          where: {
-            email: credentials.email,
-          },
-        });
+        try {
+          const userCredential = await signInWithEmail(
+            credentials.email,
+            credentials.password
+          );
 
-        if (!user || !user.hashedPassword) {
+          return {
+            id: userCredential.uid,
+            email: userCredential.email,
+            name: userCredential.displayName,
+            image: userCredential.photoURL,
+          };
+        } catch (error) {
+          console.error("Auth error:", error);
           return null;
         }
-
-        const isPasswordValid = await compare(
-          credentials.password,
-          user.hashedPassword
-        );
-
-        if (!isPasswordValid) {
-          return null;
-        }
-
-        return {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          image: user.image,
-        };
       },
     }),
   ],
@@ -61,22 +47,28 @@ const handler = NextAuth({
     verifyRequest: "/auth/verify-request",
     newUser: "/onboarding",
   },
-  session: {
-    strategy: "jwt",
-  },
   callbacks: {
-    async jwt({ token, user }) {
-      if (user) {
-        token.id = user.id;
+    async jwt({ token, user, account }) {
+      // Initial sign in
+      if (account && user) {
+        return {
+          ...token,
+          id: user.id,
+        };
       }
+
+      // Return previous token if the access token has not expired yet
       return token;
     },
-    async session({ session, token }: { session: any; token: any }) {
+    async session({ session, token }) {
       if (session.user) {
         session.user.id = token.id as string;
       }
       return session;
     },
+  },
+  session: {
+    strategy: "jwt",
   },
 });
 

@@ -1,9 +1,19 @@
 // lib/auth/authService.ts
-import { PrismaClient } from "@prisma/client";
-import { hash } from "bcrypt";
+import {
+  createUserWithEmailAndPassword,
+  signOut as firebaseSignOut,
+  GoogleAuthProvider,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+} from "firebase/auth";
+import { auth } from "../firebase/clientApp";
+import {
+  createOrUpdateUser,
+  createOrUpdateUserProfile,
+  getUserProfile,
+} from "../firebase/models/user";
 
-const prisma = new PrismaClient();
-
+// Register new user
 export async function registerUser({
   name,
   email,
@@ -13,138 +23,85 @@ export async function registerUser({
   email: string;
   password: string;
 }) {
-  // Check if user already exists
-  const existingUser = await prisma.user.findUnique({
-    where: {
+  try {
+    // Create user in Firebase Auth
+    const userCredential = await createUserWithEmailAndPassword(
+      auth,
       email,
-    },
-  });
+      password
+    );
+    const user = userCredential.user;
 
-  if (existingUser) {
-    throw new Error("User with this email already exists");
-  }
-
-  // Hash password
-  const hashedPassword = await hash(password, 12);
-
-  // Create user
-  const user = await prisma.user.create({
-    data: {
+    // Create user in Firestore
+    await createOrUpdateUser({
+      id: user.uid,
       name,
       email,
-      hashedPassword,
-    },
-  });
-
-  return user;
-}
-
-export async function createUserProfile({
-  userId,
-  age,
-  gender,
-  currentWeight,
-  targetWeight,
-  height,
-  activityLevel,
-  dietaryPreferences,
-  allergies,
-  goalType,
-  targetCalories,
-  targetProtein,
-  targetCarbs,
-  targetFat,
-}: {
-  userId: string;
-  age?: number;
-  gender?: string;
-  currentWeight?: number;
-  targetWeight?: number;
-  height?: number;
-  activityLevel?: string;
-  dietaryPreferences?: string[];
-  allergies?: string[];
-  goalType?: string;
-  targetCalories?: number;
-  targetProtein?: number;
-  targetCarbs?: number;
-  targetFat?: number;
-}) {
-  // Create user profile
-  const userProfile = await prisma.userProfile.create({
-    data: {
-      userId,
-      age,
-      gender,
-      currentWeight,
-      targetWeight,
-      height,
-      activityLevel,
-      dietaryPreferences: dietaryPreferences || [],
-      allergies: allergies || [],
-      goalType,
-      targetCalories,
-      targetProtein,
-      targetCarbs,
-      targetFat,
-    },
-  });
-
-  return userProfile;
-}
-
-export async function updateUserProfile(
-  userId: string,
-  data: Partial<{
-    age: number;
-    gender: string;
-    currentWeight: number;
-    targetWeight: number;
-    height: number;
-    activityLevel: string;
-    dietaryPreferences: string[];
-    allergies: string[];
-    goalType: string;
-    targetCalories: number;
-    targetProtein: number;
-    targetCarbs: number;
-    targetFat: number;
-    aiPersonality: string;
-    threadId: string;
-    assistantId: string;
-    onboardingCompleted: boolean;
-  }>
-) {
-  // Check if profile exists
-  const existingProfile = await prisma.userProfile.findUnique({
-    where: {
-      userId,
-    },
-  });
-
-  if (existingProfile) {
-    // Update existing profile
-    return await prisma.userProfile.update({
-      where: {
-        userId,
-      },
-      data,
     });
-  } else {
-    // Create new profile
-    return await prisma.userProfile.create({
-      data: {
-        userId,
-        ...data,
-      },
-    });
+
+    return { id: user.uid, email, name };
+  } catch (error: any) {
+    throw new Error(error.message || "Failed to register user");
   }
 }
 
-export async function getUserProfile(userId: string) {
-  return await prisma.userProfile.findUnique({
-    where: {
-      userId,
-    },
-  });
+// Sign in with email and password
+export async function signInWithEmail(email: string, password: string) {
+  try {
+    const userCredential = await signInWithEmailAndPassword(
+      auth,
+      email,
+      password
+    );
+    return userCredential.user;
+  } catch (error: any) {
+    throw new Error(error.message || "Failed to sign in");
+  }
+}
+
+// Sign in with Google
+export async function signInWithGoogle() {
+  try {
+    const provider = new GoogleAuthProvider();
+    const userCredential = await signInWithPopup(auth, provider);
+
+    // Create or update user in Firestore
+    await createOrUpdateUser({
+      id: userCredential.user.uid,
+      name: userCredential.user.displayName || undefined,
+      email: userCredential.user.email || undefined,
+      image: userCredential.user.photoURL || undefined,
+    });
+
+    return userCredential.user;
+  } catch (error: any) {
+    throw new Error(error.message || "Failed to sign in with Google");
+  }
+}
+
+// Sign out
+export async function signOut() {
+  try {
+    await firebaseSignOut(auth);
+  } catch (error: any) {
+    throw new Error(error.message || "Failed to sign out");
+  }
+}
+
+// Update user profile
+export async function updateUserProfile(userId: string, data: any) {
+  try {
+    return await createOrUpdateUserProfile(userId, data);
+  } catch (error: any) {
+    throw new Error(error.message || "Failed to update user profile");
+  }
+}
+
+// Get user profile
+export async function getUserProfileById(userId: string) {
+  try {
+    return await getUserProfile(userId);
+  } catch (error: any) {
+    throw new Error(error.message || "Failed to get user profile");
+  }
 }

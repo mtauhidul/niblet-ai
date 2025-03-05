@@ -1,50 +1,25 @@
 // app/api/meals/route.ts
-import { PrismaClient } from "@prisma/client";
-import { getServerSession } from "next-auth";
+import { createMeal, getMealsByUserAndDate } from "@/lib/firebase/models/meal";
+import { getToken } from "next-auth/jwt";
 import { NextRequest, NextResponse } from "next/server";
-
-const prisma = new PrismaClient();
 
 // GET meals
 export async function GET(request: NextRequest) {
   try {
-    // Get session
-    const session = await getServerSession();
+    // Get token and validate user
+    const token = await getToken({ req: request });
 
-    if (!session?.user?.id) {
+    if (!token?.sub) {
       return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     }
 
     // Get date from query parameters
     const url = new URL(request.url);
-    const date = url.searchParams.get("date");
-
-    // Prepare filter
-    const filter: any = {
-      userId: session.user.id,
-    };
-
-    if (date) {
-      // Create date range for the specific day
-      const startDate = new Date(date);
-      startDate.setHours(0, 0, 0, 0);
-
-      const endDate = new Date(date);
-      endDate.setHours(23, 59, 59, 999);
-
-      filter.date = {
-        gte: startDate,
-        lte: endDate,
-      };
-    }
+    const dateStr = url.searchParams.get("date");
+    const date = dateStr ? new Date(dateStr) : undefined;
 
     // Get meals
-    const meals = await prisma.meal.findMany({
-      where: filter,
-      orderBy: {
-        date: "asc",
-      },
-    });
+    const meals = await getMealsByUserAndDate(token.sub, date);
 
     return NextResponse.json(meals);
   } catch (error) {
@@ -59,10 +34,10 @@ export async function GET(request: NextRequest) {
 // POST meal
 export async function POST(request: NextRequest) {
   try {
-    // Get session
-    const session = await getServerSession();
+    // Get token and validate user
+    const token = await getToken({ req: request });
 
-    if (!session?.user?.id) {
+    if (!token?.sub) {
       return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     }
 
@@ -78,18 +53,16 @@ export async function POST(request: NextRequest) {
     }
 
     // Create meal
-    const meal = await prisma.meal.create({
-      data: {
-        userId: session.user.id,
-        name: mealData.name,
-        calories: mealData.calories,
-        protein: mealData.protein || null,
-        carbs: mealData.carbs || null,
-        fat: mealData.fat || null,
-        mealType: mealData.mealType || null,
-        items: mealData.items || [],
-        date: mealData.date ? new Date(mealData.date) : new Date(),
-      },
+    const meal = await createMeal({
+      userId: token.sub,
+      name: mealData.name,
+      calories: mealData.calories,
+      protein: mealData.protein || null,
+      carbs: mealData.carbs || null,
+      fat: mealData.fat || null,
+      mealType: mealData.mealType || null,
+      items: mealData.items || [],
+      date: mealData.date ? new Date(mealData.date) : new Date(),
     });
 
     return NextResponse.json(meal, { status: 201 });

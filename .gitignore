@@ -39,3 +39,5 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+niblet-ai-firebase-adminsdk-fbsvc-884c58b9af.json

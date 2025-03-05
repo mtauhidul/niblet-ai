@@ -9,24 +9,43 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
+interface Message {
+  id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+}
+
+interface UserData {
+  name: string;
+  age: number | null;
+  gender: string;
+  currentWeight: number | null;
+  targetWeight: number | null;
+  height: number | null;
+  activityLevel: string;
+  dietaryPreferences: string[];
+  allergies: string[];
+  goalType: string;
+}
+
 const ConversationalOnboarding = () => {
-  const [messages, setMessages] = useState<
-    { id: string; role: string; content: string }[]
-  >([]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isTyping, setIsTyping] = useState(false);
-  const [stage, setStage] = useState("intro"); // intro, personal, goals, dietary, complete
-  const [userData, setUserData] = useState({
+  const [stage, setStage] = useState<
+    "intro" | "personal" | "goals" | "dietary" | "complete"
+  >("intro");
+  const [userData, setUserData] = useState<UserData>({
     name: "",
-    age: null as number | null,
+    age: null,
     gender: "",
-    currentWeight: null as number | null,
-    targetWeight: null as number | null,
-    height: null as number | null,
+    currentWeight: null,
+    targetWeight: null,
+    height: null,
     activityLevel: "",
-    dietaryPreferences: [] as string[],
-    allergies: [] as string[],
-    goalType: "", // weight loss, maintenance, muscle gain
+    dietaryPreferences: [],
+    allergies: [],
+    goalType: "",
   });
   const [isRecording, setIsRecording] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(
@@ -51,7 +70,19 @@ const ConversationalOnboarding = () => {
     const initializeChat = async () => {
       // Create thread
       try {
-        const response = await fetch("/api/assistant", { method: "POST" });
+        const response = await fetch("/api/assistant", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error("API Error:", response.status, errorText);
+          throw new Error(`API error: ${response.status}`);
+        }
+
         const data = await response.json();
         setThreadId(data.threadId);
 
@@ -80,6 +111,14 @@ const ConversationalOnboarding = () => {
         }, 1000);
       } catch (error) {
         console.error("Error initializing chat:", error);
+        setMessages([
+          {
+            id: "error",
+            role: "system",
+            content:
+              "There was an error connecting to the assistant. Please refresh the page and try again.",
+          },
+        ]);
       }
     };
 
@@ -94,7 +133,7 @@ const ConversationalOnboarding = () => {
   // Process responses based on current stage
   const processResponse = (userMessage: string) => {
     // Add user message to chat
-    const newMessage = {
+    const newMessage: Message = {
       id: `user-${Date.now()}`,
       role: "user",
       content: userMessage,
@@ -302,7 +341,7 @@ const ConversationalOnboarding = () => {
         }, 1000);
       }
     } else if (stage === "dietary") {
-      // Process dietary preferences
+      // Process dietary preferences and allergies
       if (userData.dietaryPreferences.length === 0) {
         // Capture dietary preferences
         const preferences =
@@ -324,8 +363,8 @@ const ConversationalOnboarding = () => {
           ]);
           setIsTyping(false);
         }, 1000);
-      } else if (userData.allergies.length === 0) {
-        // Capture allergies
+      } else {
+        // We've already captured preferences, now capture allergies
         const allergies =
           userMessage.toLowerCase() === "none"
             ? []
@@ -337,29 +376,20 @@ const ConversationalOnboarding = () => {
         // Complete the onboarding
         setTimeout(() => {
           // Calculate BMI and TDEE for the summary
-          if (userData.height === null) {
+          if (!userData.height || !userData.currentWeight || !userData.age) {
             setMessages((prev) => [
               ...prev,
               {
                 id: `error-${Date.now()}`,
                 role: "system",
-                content: "Height is required to calculate BMI.",
+                content:
+                  "Some required information is missing. Please restart the onboarding process.",
               },
             ]);
             return;
           }
+
           const heightInMeters = userData.height * 0.0254;
-          if (userData.currentWeight === null) {
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: `error-${Date.now()}`,
-                role: "system",
-                content: "Current weight is required to calculate BMI.",
-              },
-            ]);
-            return;
-          }
           const weightInKg = userData.currentWeight * 0.453592;
           const bmi = weightInKg / (heightInMeters * heightInMeters);
 
@@ -370,30 +400,26 @@ const ConversationalOnboarding = () => {
               88.362 +
               13.397 * weightInKg +
               4.799 * userData.height * 2.54 -
-              5.677 * (userData.age ?? 0);
+              5.677 * (userData.age || 0);
           } else {
             bmr =
               447.593 +
               9.247 * weightInKg +
               3.098 * userData.height * 2.54 -
-              4.33 * (userData.age ?? 0);
+              4.33 * (userData.age || 0);
           }
 
           // Activity multiplier
           let activityMultiplier = 1.2; // Default to sedentary
-          switch (userData.activityLevel.toLowerCase()) {
-            case "lightly active":
-              activityMultiplier = 1.375;
-              break;
-            case "moderately active":
-              activityMultiplier = 1.55;
-              break;
-            case "very active":
-              activityMultiplier = 1.725;
-              break;
-            case "extremely active":
-              activityMultiplier = 1.9;
-              break;
+          const activityLevel = userData.activityLevel.toLowerCase();
+          if (activityLevel.includes("lightly")) {
+            activityMultiplier = 1.375;
+          } else if (activityLevel.includes("moderately")) {
+            activityMultiplier = 1.55;
+          } else if (activityLevel.includes("very")) {
+            activityMultiplier = 1.725;
+          } else if (activityLevel.includes("extremely")) {
+            activityMultiplier = 1.9;
           }
 
           const tdee = Math.round(bmr * activityMultiplier);
@@ -532,6 +558,10 @@ Ready to start your journey?`,
             body: formData,
           });
 
+          if (!response.ok) {
+            throw new Error(`API error: ${response.status}`);
+          }
+
           const data = await response.json();
 
           if (data.text) {
@@ -601,7 +631,12 @@ Ready to start your journey?`,
 
   // Complete onboarding and move to dashboard
   const completeOnboarding = async () => {
-    router.push("/dashboard");
+    try {
+      // Redirect to dashboard
+      router.push("/dashboard");
+    } catch (error) {
+      console.error("Error completing onboarding:", error);
+    }
   };
 
   return (
