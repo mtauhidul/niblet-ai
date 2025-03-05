@@ -72,59 +72,64 @@ export async function createMeal(mealData: Omit<Meal, "id">): Promise<Meal> {
 /**
  * Get meals by user and optional date - Updated with more flexible querying
  */
+
 export async function getMealsByUserAndDate(
   userId: string,
   date?: Date
 ): Promise<Meal[]> {
   try {
     const mealsCollectionRef = collection(db, "meals");
-    let q;
 
-    if (date) {
-      // Get meals for specific date by creating start and end timestamps
-      const startOfDay = new Date(date);
-      startOfDay.setHours(0, 0, 0, 0);
-
-      const endOfDay = new Date(date);
-      endOfDay.setHours(23, 59, 59, 999);
-
-      // Simple query without complex ordering to avoid index issues
-      q = query(
-        mealsCollectionRef,
-        where("userId", "==", userId),
-        where("date", ">=", startOfDay),
-        where("date", "<=", endOfDay)
-      );
-    } else {
-      // Get all meals for user
-      q = query(mealsCollectionRef, where("userId", "==", userId));
-    }
+    // IMPORTANT: Use a simple query that doesn't require complex indexes
+    // Just query by userId and handle date filtering in memory
+    const q = query(mealsCollectionRef, where("userId", "==", userId));
 
     const querySnapshot = await getDocs(q);
 
     const meals: Meal[] = [];
     querySnapshot.forEach((doc) => {
       const data = doc.data();
-      meals.push({
-        id: doc.id,
-        ...data,
-        date: data.date?.toDate ? data.date.toDate() : data.date,
-      } as Meal);
+      // Convert Firebase Timestamp to JavaScript Date
+      const mealDate = data.date?.toDate
+        ? data.date.toDate()
+        : new Date(data.date);
+
+      // Filter by date in memory if date parameter is provided
+      if (date) {
+        const startOfDay = new Date(date);
+        startOfDay.setHours(0, 0, 0, 0);
+
+        const endOfDay = new Date(date);
+        endOfDay.setHours(23, 59, 59, 999);
+
+        // Only include meals from the specified date
+        if (mealDate >= startOfDay && mealDate <= endOfDay) {
+          meals.push({
+            id: doc.id,
+            ...data,
+            date: mealDate,
+          } as Meal);
+        }
+      } else {
+        // Include all meals if no date filter
+        meals.push({
+          id: doc.id,
+          ...data,
+          date: mealDate,
+        } as Meal);
+      }
     });
 
-    // Sort meals by date client-side to avoid requiring complex indexes
+    // Sort meals by date manually (most recent first)
     return meals.sort((a, b) => {
       const dateA = a.date instanceof Date ? a.date : new Date(a.date as any);
       const dateB = b.date instanceof Date ? b.date : new Date(b.date as any);
-      return dateB.getTime() - dateA.getTime(); // Sort by most recent first
+      return dateB.getTime() - dateA.getTime();
     });
   } catch (error) {
     console.error("Error getting meals:", error);
-    throw new Error(
-      `Failed to get meals: ${
-        error instanceof Error ? error.message : String(error)
-      }`
-    );
+    // Return an empty array instead of throwing an error
+    return [];
   }
 }
 

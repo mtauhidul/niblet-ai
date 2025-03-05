@@ -57,6 +57,7 @@ const Dashboard = ({
   }, []);
 
   // Fetch today's meals with dedicated error handling - made into a memoized function
+  // Updated fetchTodaysMeals function for Dashboard.tsx
   const fetchTodaysMeals = useCallback(async () => {
     if (!session?.user?.id) return;
 
@@ -67,51 +68,90 @@ const Dashboard = ({
       // Format date as YYYY-MM-DD and add timestamp to prevent caching
       const today = new Date().toISOString().split("T")[0];
       const timestamp = Date.now();
-      const response = await fetch(`/api/meals?date=${today}&_t=${timestamp}`);
 
-      if (!response.ok) {
-        console.error("Meals API Error:", response.status, response.statusText);
-        throw new Error(`Error ${response.status}: ${response.statusText}`);
+      try {
+        const response = await fetch(
+          `/api/meals?date=${today}&_t=${timestamp}`
+        );
+
+        if (!response.ok) {
+          console.error(
+            "Meals API Error:",
+            response.status,
+            response.statusText
+          );
+          // Don't throw error, just log it and continue with empty array
+          setTodaysMeals([]);
+          setCaloriesConsumed(0);
+          setCaloriesRemaining(targetCalories);
+
+          // Show toast message
+          toast.error("Failed to load your meals. Please try again later.");
+          return;
+        }
+
+        const mealsData = await response.json();
+        console.log("Meals data received:", mealsData);
+
+        // Handle empty arrays properly
+        if (Array.isArray(mealsData)) {
+          setTodaysMeals(mealsData);
+
+          // Calculate calories consumed and remaining
+          const totalCalories = mealsData.reduce(
+            (sum, meal) => sum + (Number(meal.calories) || 0),
+            0
+          );
+
+          console.log("Total calories calculated:", totalCalories);
+          setCaloriesConsumed(totalCalories);
+          setCaloriesRemaining(targetCalories - totalCalories);
+        } else {
+          // If response is not an array, set empty meals
+          setTodaysMeals([]);
+          setCaloriesConsumed(0);
+          setCaloriesRemaining(targetCalories);
+        }
+      } catch (fetchError) {
+        console.error("Error fetching meals:", fetchError);
+        // Set empty meals on error
+        setTodaysMeals([]);
+        setCaloriesConsumed(0);
+        setCaloriesRemaining(targetCalories);
+
+        // Show toast message
+        toast.error("Failed to load your meals. Network error occurred.");
       }
 
-      const mealsData = await response.json();
-      console.log("Meals data received:", mealsData);
-
-      setTodaysMeals(mealsData);
-
-      // Calculate calories consumed and remaining
-      const totalCalories = mealsData.reduce(
-        (sum: number, meal: Meal) => sum + (Number(meal.calories) || 0),
-        0
-      );
-
-      console.log("Total calories calculated:", totalCalories);
-      setCaloriesConsumed(totalCalories);
-      setCaloriesRemaining(targetCalories - totalCalories);
-
-      // Also fetch calories summary as a backup method
+      // Always try to fetch summary data separately as a fallback
       try {
         const summaryResponse = await fetch(
           `/api/meals?summary=true&date=${today}&_t=${timestamp}`
         );
+
         if (summaryResponse.ok) {
           const summaryData = await summaryResponse.json();
           console.log("Calories summary:", summaryData);
 
-          // If the calorie counts differ, use the summary value (single source of truth)
-          if (summaryData.consumed !== totalCalories) {
-            console.log("Using calorie summary instead of calculated total");
+          if (summaryData && typeof summaryData.consumed === "number") {
             setCaloriesConsumed(summaryData.consumed);
             setCaloriesRemaining(targetCalories - summaryData.consumed);
           }
         }
       } catch (summaryError) {
         console.error("Error fetching calories summary:", summaryError);
+        // Already set fallback values above, so no need to do anything here
       }
     } catch (error) {
-      console.error("Error fetching meals:", error);
+      console.error("Error in fetchTodaysMeals:", error);
 
-      toast.error("Failed to load your meals. Please try refreshing.");
+      // Set empty data
+      setTodaysMeals([]);
+      setCaloriesConsumed(0);
+      setCaloriesRemaining(targetCalories);
+
+      // Show toast message
+      toast.error("Something went wrong while loading your meal data.");
     } finally {
       setIsRefreshing(false);
     }

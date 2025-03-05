@@ -1,9 +1,5 @@
-// app/api/meals/route.ts - Enhanced with cache control and better error handling
-import {
-  createMeal,
-  getCaloriesSummary,
-  getMealsByUserAndDate,
-} from "@/lib/firebase/models/meal";
+// app/api/meals/route.ts - Fixed with better error handling and query optimization
+import { createMeal, getMealsByUserAndDate } from "@/lib/firebase/models/meal";
 import { getToken } from "next-auth/jwt";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -57,20 +53,39 @@ export async function GET(request: NextRequest) {
     // Get summary flag from query parameters
     const summary = url.searchParams.get("summary") === "true";
 
-    if (summary) {
-      // Return only the calories summary
-      console.log("Returning calories summary");
-      const caloriesSummary = await getCaloriesSummary(token.sub, date);
-      return addCacheControlHeaders(NextResponse.json(caloriesSummary));
-    } else {
-      // Get meals
-      console.log("Fetching full meal list");
-      const meals = await getMealsByUserAndDate(token.sub, date);
-      console.log(`Found ${meals.length} meals`);
-      return addCacheControlHeaders(NextResponse.json(meals));
+    try {
+      if (summary) {
+        // Return a simplified summary for performance
+        const meals = await getMealsByUserAndDate(token.sub, date);
+        const totalCalories = meals.reduce(
+          (sum, meal) => sum + (meal.calories || 0),
+          0
+        );
+
+        return addCacheControlHeaders(
+          NextResponse.json({
+            consumed: totalCalories,
+            mealCount: meals.length,
+          })
+        );
+      } else {
+        // Get meals
+        console.log("Fetching full meal list");
+        const meals = await getMealsByUserAndDate(token.sub, date);
+        console.log(`Found ${meals.length} meals`);
+        return addCacheControlHeaders(NextResponse.json(meals));
+      }
+    } catch (error) {
+      console.error("Error retrieving meals from Firestore:", error);
+      // Return an empty array instead of throwing an error
+      return addCacheControlHeaders(
+        NextResponse.json(summary ? { consumed: 0, mealCount: 0 } : [], {
+          status: 200,
+        })
+      );
     }
   } catch (error) {
-    console.error("Error fetching meals:", error);
+    console.error("Error processing request:", error);
     return addCacheControlHeaders(
       NextResponse.json(
         {
@@ -188,10 +203,23 @@ export async function POST(request: NextRequest) {
     });
 
     // Create meal
-    const meal = await createMeal(mealToCreate);
-    console.log("Meal created successfully with ID:", meal.id);
-
-    return NextResponse.json(meal, { status: 201 });
+    try {
+      const meal = await createMeal(mealToCreate);
+      console.log("Meal created successfully with ID:", meal.id);
+      return NextResponse.json(meal, { status: 201 });
+    } catch (createError) {
+      console.error("Error in Firestore createMeal operation:", createError);
+      return NextResponse.json(
+        {
+          message: "Failed to store meal in database",
+          error:
+            createError instanceof Error
+              ? createError.message
+              : String(createError),
+        },
+        { status: 500 }
+      );
+    }
   } catch (error) {
     console.error("Error creating meal:", error);
     return NextResponse.json(
