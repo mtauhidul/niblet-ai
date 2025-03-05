@@ -1,5 +1,7 @@
+// Updated components/TodaysMeals.tsx
 "use client";
 
+import AddMealModal from "@/components/AddMealModal";
 import type { Meal } from "@/lib/firebase/models/meal";
 import { Edit, Plus, Trash } from "lucide-react";
 import { useState } from "react";
@@ -29,6 +31,7 @@ const TodaysMeals = ({
 }: TodaysMealsProps) => {
   const [deletingMealId, setDeletingMealId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showAddMealModal, setShowAddMealModal] = useState(false);
 
   // Group meals by type
   const mealsByType: Record<string, Meal[]> = {};
@@ -86,6 +89,13 @@ const TodaysMeals = ({
     }
   };
 
+  // Handle meal added from modal
+  const handleMealAdded = () => {
+    if (onMealDeleted) {
+      onMealDeleted(); // Reuse the same callback for consistency
+    }
+  };
+
   // Calculate daily totals
   const totalCalories = meals.reduce(
     (sum, meal) => sum + (meal.calories || 0),
@@ -118,9 +128,20 @@ const TodaysMeals = ({
         <p className="text-gray-500 dark:text-gray-400 mb-4">
           No meals logged today. Start tracking your meals!
         </p>
-        <Button size="sm" className="flex items-center gap-1">
+        <Button
+          size="sm"
+          className="flex items-center gap-1"
+          onClick={() => setShowAddMealModal(true)}
+        >
           <Plus className="h-4 w-4" /> Add Meal
         </Button>
+
+        {/* Add Meal Modal */}
+        <AddMealModal
+          open={showAddMealModal}
+          onOpenChange={setShowAddMealModal}
+          onMealAdded={handleMealAdded}
+        />
       </div>
     );
   }
@@ -129,7 +150,12 @@ const TodaysMeals = ({
     <div>
       <div className="flex justify-between items-center mb-4">
         <h3 className="font-bold">Today's Meals</h3>
-        <Button size="sm" variant="ghost" className="flex items-center gap-1">
+        <Button
+          size="sm"
+          variant="ghost"
+          className="flex items-center gap-1"
+          onClick={() => setShowAddMealModal(true)}
+        >
           <Plus className="h-4 w-4" /> Add
         </Button>
       </div>
@@ -232,6 +258,13 @@ const TodaysMeals = ({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Add Meal Modal */}
+      <AddMealModal
+        open={showAddMealModal}
+        onOpenChange={setShowAddMealModal}
+        onMealAdded={handleMealAdded}
+      />
     </div>
   );
 };

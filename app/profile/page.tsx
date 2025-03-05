@@ -1,4 +1,4 @@
-// app/profile/page.tsx
+// Updated app/profile/page.tsx with fixes for name display and profile issues
 "use client";
 
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import UserAvatar from "@/components/UserAvatar"; // Import the new UserAvatar component
 import { ArrowLeft, Save } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
@@ -24,6 +25,7 @@ export default function ProfilePage() {
   const [isSaving, setIsSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+  const [mounted, setMounted] = useState(false);
 
   const [profileData, setProfileData] = useState({
     name: "",
@@ -44,15 +46,26 @@ export default function ProfilePage() {
     aiPersonality: "best-friend",
   });
 
+  // Set mounted state to prevent hydration issues
   useEffect(() => {
-    // If not authenticated, redirect to login
-    if (status === "unauthenticated") {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    // If not authenticated and mounted, redirect to login
+    if (mounted && status === "unauthenticated") {
       router.push("/auth/signin");
-    } else if (status === "authenticated") {
+    } else if (mounted && status === "authenticated") {
+      // Initialize form with session data for name and email
+      setProfileData((prev) => ({
+        ...prev,
+        name: session?.user?.name || "",
+        email: session?.user?.email || "",
+      }));
       fetchUserProfile();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, router]);
+  }, [status, router, session, mounted]);
 
   const fetchUserProfile = async () => {
     setIsLoading(true);
@@ -62,10 +75,11 @@ export default function ProfilePage() {
       if (response.ok) {
         const userProfile = await response.json();
 
-        // Set name and email from session
-        setProfileData({
-          name: session?.user?.name || "",
-          email: session?.user?.email || "",
+        // Combine session data with user profile
+        setProfileData((prev) => ({
+          ...prev,
+          name: session?.user?.name || prev.name,
+          email: session?.user?.email || prev.email,
           age: userProfile.age?.toString() || "",
           gender: userProfile.gender || "",
           currentWeight: userProfile.currentWeight?.toString() || "",
@@ -80,7 +94,7 @@ export default function ProfilePage() {
           targetCarbs: userProfile.targetCarbs?.toString() || "",
           targetFat: userProfile.targetFat?.toString() || "",
           aiPersonality: userProfile.aiPersonality || "best-friend",
-        });
+        }));
       }
     } catch (error) {
       console.error("Error fetching user profile:", error);
@@ -158,7 +172,12 @@ export default function ProfilePage() {
     }
   };
 
-  if (isLoading) {
+  // Handle hydration properly - don't render until mounted
+  if (!mounted) {
+    return null;
+  }
+
+  if (status === "loading" || isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900">
         <div className="text-center">
@@ -186,6 +205,13 @@ export default function ProfilePage() {
           <h1 className="text-2xl font-bold">Your Profile</h1>
         </div>
 
+        {/* User Avatar Section */}
+        <div className="mb-6 flex flex-col items-center">
+          <UserAvatar size="lg" className="mb-3" />
+          <p className="text-lg font-medium">{profileData.name || "User"}</p>
+          <p className="text-sm text-gray-500">{profileData.email}</p>
+        </div>
+
         {/* Personal Information */}
         <Card className="mb-6">
           <CardHeader>
@@ -194,25 +220,17 @@ export default function ProfilePage() {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="name">Name</Label>
-                <Input
-                  id="name"
-                  name="name"
-                  value={profileData.name}
-                  onChange={handleInputChange}
-                  disabled
-                />
+                <Label htmlFor="name">Name (from account)</Label>
+                <div className="h-9 px-3 py-1 border border-input rounded-md bg-gray-100 dark:bg-gray-800 flex items-center">
+                  {profileData.name || "Name not provided"}
+                </div>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  name="email"
-                  value={profileData.email}
-                  onChange={handleInputChange}
-                  disabled
-                />
+                <Label htmlFor="email">Email (from account)</Label>
+                <div className="h-9 px-3 py-1 border border-input rounded-md bg-gray-100 dark:bg-gray-800 flex items-center">
+                  {profileData.email || "Email not provided"}
+                </div>
               </div>
             </div>
 

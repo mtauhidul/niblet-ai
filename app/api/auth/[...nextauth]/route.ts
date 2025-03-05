@@ -1,4 +1,5 @@
 // app/api/auth/[...nextauth]/route.ts
+
 import { signInWithEmail } from "@/lib/auth/authService";
 import NextAuth from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
@@ -9,8 +10,15 @@ const handler = NextAuth({
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID as string,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET as string,
+      // Make sure this matches exactly what is configured in Google Cloud Console
+      authorization: {
+        params: {
+          prompt: "consent",
+          access_type: "offline",
+          response_type: "code",
+        },
+      },
     }),
-    // Add credentials provider for email/password authentication
     CredentialsProvider({
       name: "Credentials",
       credentials: {
@@ -53,6 +61,8 @@ const handler = NextAuth({
       // Initial sign in
       if (account && user) {
         token.id = user.id;
+        // Include provider info for potential debugging
+        token.provider = account.provider;
       }
       return token;
     },
@@ -63,7 +73,9 @@ const handler = NextAuth({
       return session;
     },
     async redirect({ url, baseUrl }) {
-      console.log("Redirecting to:", url);
+      // For debugging
+      console.log("NextAuth Redirect:", { url, baseUrl });
+
       // Handle relative URLs
       if (url.startsWith("/")) {
         return `${baseUrl}${url}`;
@@ -80,9 +92,9 @@ const handler = NextAuth({
     strategy: "jwt",
     maxAge: 30 * 24 * 60 * 60, // 30 days
   },
-  // Using high entropy secret for better security
-  secret: process.env.NEXTAUTH_SECRET,
   debug: process.env.NODE_ENV === "development",
+  // Update this to match exactly what is in your env variables
+  secret: process.env.NEXTAUTH_SECRET,
 });
 
 export { handler as GET, handler as POST };

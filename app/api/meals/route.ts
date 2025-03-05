@@ -1,4 +1,4 @@
-// app/api/meals/route.ts
+// app/api/meals/route.ts - Enhanced with cache control and better error handling
 import {
   createMeal,
   getCaloriesSummary,
@@ -7,38 +7,78 @@ import {
 import { getToken } from "next-auth/jwt";
 import { NextRequest, NextResponse } from "next/server";
 
+// Helper to add cache control headers to prevent caching
+const addCacheControlHeaders = (response: NextResponse) => {
+  response.headers.set(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate"
+  );
+  response.headers.set("Pragma", "no-cache");
+  response.headers.set("Expires", "0");
+  return response;
+};
+
 // GET meals
 export async function GET(request: NextRequest) {
   try {
+    console.log("GET /api/meals request received");
+
     // Get token and validate user
     const token = await getToken({ req: request });
 
     if (!token?.sub) {
-      return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+      console.error("Unauthorized access attempt");
+      return addCacheControlHeaders(
+        NextResponse.json({ message: "Unauthorized" }, { status: 401 })
+      );
     }
 
     // Get date from query parameters
     const url = new URL(request.url);
     const dateStr = url.searchParams.get("date");
-    const date = dateStr ? new Date(dateStr) : undefined;
+    let date: Date | undefined;
+
+    if (dateStr) {
+      try {
+        date = new Date(dateStr);
+        // Check if date is valid
+        if (isNaN(date.getTime())) {
+          console.warn("Invalid date parameter:", dateStr);
+          date = new Date(); // Default to today
+        }
+      } catch (error) {
+        console.warn("Error parsing date:", dateStr, error);
+        date = new Date(); // Default to today
+      }
+    }
+
+    console.log("Fetching meals for date:", date?.toISOString() || "all dates");
 
     // Get summary flag from query parameters
     const summary = url.searchParams.get("summary") === "true";
 
     if (summary) {
       // Return only the calories summary
+      console.log("Returning calories summary");
       const caloriesSummary = await getCaloriesSummary(token.sub, date);
-      return NextResponse.json(caloriesSummary);
+      return addCacheControlHeaders(NextResponse.json(caloriesSummary));
     } else {
       // Get meals
+      console.log("Fetching full meal list");
       const meals = await getMealsByUserAndDate(token.sub, date);
-      return NextResponse.json(meals);
+      console.log(`Found ${meals.length} meals`);
+      return addCacheControlHeaders(NextResponse.json(meals));
     }
   } catch (error) {
     console.error("Error fetching meals:", error);
-    return NextResponse.json(
-      { message: "Failed to fetch meals" },
-      { status: 500 }
+    return addCacheControlHeaders(
+      NextResponse.json(
+        {
+          message: "Failed to fetch meals",
+          error: error instanceof Error ? error.message : String(error),
+        },
+        { status: 500 }
+      )
     );
   }
 }
@@ -46,18 +86,30 @@ export async function GET(request: NextRequest) {
 // POST meal
 export async function POST(request: NextRequest) {
   try {
+    console.log("POST /api/meals request received");
+
     // Get token and validate user
     const token = await getToken({ req: request });
 
     if (!token?.sub) {
+      console.error("Unauthorized: No user token found");
       return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     }
 
     // Get meal data from request body
     const mealData = await request.json();
+    console.log("Received meal data:", {
+      name: mealData.name,
+      calories: mealData.calories,
+      mealType: mealData.mealType,
+    });
 
     // Validate required fields
-    if (!mealData.name || !mealData.calories) {
+    if (!mealData.name || mealData.calories === undefined) {
+      console.error("Missing required fields:", {
+        name: mealData.name,
+        calories: mealData.calories,
+      });
       return NextResponse.json(
         { message: "Name and calories are required" },
         { status: 400 }
@@ -70,26 +122,54 @@ export async function POST(request: NextRequest) {
         ? parseFloat(mealData.calories)
         : mealData.calories;
 
-    const protein = mealData.protein
-      ? typeof mealData.protein === "string"
-        ? parseFloat(mealData.protein)
-        : mealData.protein
-      : null;
+    const protein =
+      mealData.protein !== undefined &&
+      mealData.protein !== null &&
+      mealData.protein !== ""
+        ? typeof mealData.protein === "string"
+          ? parseFloat(mealData.protein)
+          : mealData.protein
+        : null;
 
-    const carbs = mealData.carbs
-      ? typeof mealData.carbs === "string"
-        ? parseFloat(mealData.carbs)
-        : mealData.carbs
-      : null;
+    const carbs =
+      mealData.carbs !== undefined &&
+      mealData.carbs !== null &&
+      mealData.carbs !== ""
+        ? typeof mealData.carbs === "string"
+          ? parseFloat(mealData.carbs)
+          : mealData.carbs
+        : null;
 
-    const fat = mealData.fat
-      ? typeof mealData.fat === "string"
-        ? parseFloat(mealData.fat)
-        : mealData.fat
-      : null;
+    const fat =
+      mealData.fat !== undefined && mealData.fat !== null && mealData.fat !== ""
+        ? typeof mealData.fat === "string"
+          ? parseFloat(mealData.fat)
+          : mealData.fat
+        : null;
 
-    // Create meal
-    const meal = await createMeal({
+    // Process items array
+    let items = [];
+    if (mealData.items) {
+      if (Array.isArray(mealData.items)) {
+        items = mealData.items;
+      } else if (typeof mealData.items === "string") {
+        items = mealData.items
+          .split(",")
+          .map((item: string) => item.trim())
+          .filter((item: string) => item);
+      }
+    }
+
+    // Create meal object with the current date if not specified
+    let mealDate = mealData.date ? new Date(mealData.date) : new Date();
+
+    // Ensure we have a valid date
+    if (isNaN(mealDate.getTime())) {
+      console.warn("Invalid date in meal data, using current date instead");
+      mealDate = new Date();
+    }
+
+    const mealToCreate = {
       userId: token.sub,
       name: mealData.name,
       calories: calories,
@@ -97,15 +177,28 @@ export async function POST(request: NextRequest) {
       carbs: carbs,
       fat: fat,
       mealType: mealData.mealType || "Other",
-      items: Array.isArray(mealData.items) ? mealData.items : [],
-      date: mealData.date ? new Date(mealData.date) : new Date(),
+      items: items,
+      date: mealDate,
+    };
+
+    console.log("Creating meal with data:", {
+      name: mealToCreate.name,
+      calories: mealToCreate.calories,
+      date: mealToCreate.date,
     });
+
+    // Create meal
+    const meal = await createMeal(mealToCreate);
+    console.log("Meal created successfully with ID:", meal.id);
 
     return NextResponse.json(meal, { status: 201 });
   } catch (error) {
     console.error("Error creating meal:", error);
     return NextResponse.json(
-      { message: "Failed to create meal" },
+      {
+        message: "Failed to create meal",
+        error: error instanceof Error ? error.message : String(error),
+      },
       { status: 500 }
     );
   }

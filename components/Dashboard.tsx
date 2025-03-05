@@ -1,14 +1,15 @@
+// components/Dashboard.tsx - Enhanced with dynamic data updates
 "use client";
 
 import { Card, CardContent } from "@/components/ui/card";
 import { PersonalityKey } from "@/lib/assistantService";
 import { getUserProfileById } from "@/lib/auth/authService";
 import type { Meal } from "@/lib/firebase/models/meal";
-import { getCaloriesSummary } from "@/lib/firebase/models/meal";
-import { LogOut, User } from "lucide-react";
+import { LogOut, RefreshCw, User } from "lucide-react";
 import { signOut, useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 import ChatContainer from "./ChatContainer";
 import TodaysMeals from "./TodaysMeals";
 import { Button } from "./ui/button";
@@ -44,6 +45,8 @@ const Dashboard = ({
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [loadingError, setLoadingError] = useState<string | null>(null);
+  const [lastRefresh, setLastRefresh] = useState(Date.now()); // For forcing re-fetches
 
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -53,24 +56,74 @@ const Dashboard = ({
     setMounted(true);
   }, []);
 
-  useEffect(() => {
-    // Only run client-side code after mounting
-    if (!mounted) return;
+  // Fetch today's meals with dedicated error handling - made into a memoized function
+  const fetchTodaysMeals = useCallback(async () => {
+    if (!session?.user?.id) return;
 
-    // Redirect to sign in if not authenticated
-    if (status === "unauthenticated") {
-      router.push("/auth/signin");
-    } else if (status === "authenticated" && session?.user?.id) {
-      fetchUserData();
+    setIsRefreshing(true);
+    try {
+      console.log("Fetching meals at:", new Date().toISOString());
+
+      // Format date as YYYY-MM-DD and add timestamp to prevent caching
+      const today = new Date().toISOString().split("T")[0];
+      const timestamp = Date.now();
+      const response = await fetch(`/api/meals?date=${today}&_t=${timestamp}`);
+
+      if (!response.ok) {
+        console.error("Meals API Error:", response.status, response.statusText);
+        throw new Error(`Error ${response.status}: ${response.statusText}`);
+      }
+
+      const mealsData = await response.json();
+      console.log("Meals data received:", mealsData);
+
+      setTodaysMeals(mealsData);
+
+      // Calculate calories consumed and remaining
+      const totalCalories = mealsData.reduce(
+        (sum: number, meal: Meal) => sum + (Number(meal.calories) || 0),
+        0
+      );
+
+      console.log("Total calories calculated:", totalCalories);
+      setCaloriesConsumed(totalCalories);
+      setCaloriesRemaining(targetCalories - totalCalories);
+
+      // Also fetch calories summary as a backup method
+      try {
+        const summaryResponse = await fetch(
+          `/api/meals?summary=true&date=${today}&_t=${timestamp}`
+        );
+        if (summaryResponse.ok) {
+          const summaryData = await summaryResponse.json();
+          console.log("Calories summary:", summaryData);
+
+          // If the calorie counts differ, use the summary value (single source of truth)
+          if (summaryData.consumed !== totalCalories) {
+            console.log("Using calorie summary instead of calculated total");
+            setCaloriesConsumed(summaryData.consumed);
+            setCaloriesRemaining(targetCalories - summaryData.consumed);
+          }
+        }
+      } catch (summaryError) {
+        console.error("Error fetching calories summary:", summaryError);
+      }
+    } catch (error) {
+      console.error("Error fetching meals:", error);
+
+      toast.error("Failed to load your meals. Please try refreshing.");
+    } finally {
+      setIsRefreshing(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, router, session, mounted]);
+  }, [session?.user?.id, targetCalories]);
 
-  // Fetch user data and today's meals
-  const fetchUserData = async () => {
+  // Fetch user data including profile and meals
+  const fetchUserData = useCallback(async () => {
     if (!session?.user?.id) return;
 
     setIsLoading(true);
+    setLoadingError(null);
+
     try {
       // Fetch user profile
       const profileData = await getUserProfileById(session.user.id);
@@ -88,63 +141,85 @@ const Dashboard = ({
         }
       }
 
-      // Fetch today's calories summary
-      const today = new Date();
-      const caloriesSummary = await getCaloriesSummary(session.user.id, today);
-
-      setCaloriesConsumed(caloriesSummary.consumed);
-      setCaloriesRemaining(
-        (profileData?.targetCalories || 2000) - caloriesSummary.consumed
-      );
-
-      // Fetch today's meals
+      // Fetch today's meals separately to isolate errors
       await fetchTodaysMeals();
     } catch (error) {
       console.error("Error fetching user data:", error);
+      setLoadingError(
+        "Failed to load your profile data. Please try refreshing."
+      );
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [session?.user?.id, fetchTodaysMeals]);
 
-  // Separate function to fetch today's meals
-  const fetchTodaysMeals = async () => {
-    if (!session?.user?.id) return;
+  // Initial data loading
+  useEffect(() => {
+    // Only run client-side code after mounting
+    if (!mounted) return;
 
-    setIsRefreshing(true);
-    try {
-      const response = await fetch(
-        `/api/meals?date=${new Date().toISOString().split("T")[0]}`
-      );
+    // Redirect to sign in if not authenticated
+    if (status === "unauthenticated") {
+      router.push("/auth/signin");
+    } else if (status === "authenticated" && session?.user?.id) {
+      fetchUserData();
+    }
+  }, [status, router, session, mounted, fetchUserData]);
 
-      if (response.ok) {
-        const mealsData = await response.json();
-        setTodaysMeals(mealsData);
+  // Set up periodic refresh for data
+  useEffect(() => {
+    // Only set up refresh if authenticated and mounted
+    if (!mounted || status !== "authenticated" || !session?.user?.id) return;
+
+    // Refresh data every minute to keep it current
+    const refreshInterval = setInterval(() => {
+      console.log("Auto-refreshing data...");
+      fetchTodaysMeals();
+      setLastRefresh(Date.now());
+    }, 60000); // 1 minute
+
+    return () => clearInterval(refreshInterval);
+  }, [mounted, status, session?.user?.id, fetchTodaysMeals]);
+
+  // Refresh data when tab becomes active
+  useEffect(() => {
+    if (!mounted) return;
+
+    const handleVisibilityChange = () => {
+      if (
+        document.visibilityState === "visible" &&
+        status === "authenticated"
+      ) {
+        console.log("Tab became visible, refreshing data...");
+        fetchTodaysMeals();
+        setLastRefresh(Date.now());
       }
-    } catch (error) {
-      console.error("Error fetching meals:", error);
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
+    };
 
-  // Handle meal logged from chat
-  const handleMealLogged = async () => {
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [mounted, status, fetchTodaysMeals]);
+
+  // Handle meal logged from chat or any source
+  const handleMealLogged = useCallback(async () => {
+    console.log("Meal logged, refreshing data...");
     await fetchTodaysMeals();
+    setLastRefresh(Date.now());
 
-    // Also update calories
-    if (session?.user?.id) {
-      const caloriesSummary = await getCaloriesSummary(
-        session.user.id,
-        new Date()
-      );
+    // If on chat tab, switch to meals tab to show the new meal
+    setActiveTab("stats");
+  }, [fetchTodaysMeals]);
 
-      setCaloriesConsumed(caloriesSummary.consumed);
-      setCaloriesRemaining(targetCalories - caloriesSummary.consumed);
-    }
-  };
+  // Handle manual refresh
+  const handleRefresh = useCallback(() => {
+    console.log("Manual refresh requested");
+    fetchTodaysMeals();
+    setLastRefresh(Date.now());
+  }, [fetchTodaysMeals]);
 
   // Handle weight logged from chat
-  const handleWeightLogged = async () => {
+  const handleWeightLogged = useCallback(async () => {
     if (!session?.user?.id) return;
 
     try {
@@ -155,8 +230,10 @@ const Dashboard = ({
       }
     } catch (error) {
       console.error("Error refreshing user profile:", error);
+
+      toast.error("Failed to update your weight information.");
     }
-  };
+  }, [session?.user?.id]);
 
   const handleSignOut = async () => {
     try {
@@ -214,6 +291,22 @@ const Dashboard = ({
         </div>
       </header>
 
+      {/* Error message if loading failed */}
+      {loadingError && (
+        <div className="bg-red-100 dark:bg-red-900 p-4 m-4 rounded-lg text-red-800 dark:text-red-200">
+          <div className="font-medium">Error loading data</div>
+          <div>{loadingError}</div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-2"
+            onClick={fetchUserData}
+          >
+            Retry
+          </Button>
+        </div>
+      )}
+
       {/* Calories Card */}
       <Card className="mx-4 my-4">
         <CardContent className="p-0 flex">
@@ -241,7 +334,25 @@ const Dashboard = ({
         >
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="chat">Chat</TabsTrigger>
-            <TabsTrigger value="stats">Today's Meals</TabsTrigger>
+            <TabsTrigger value="stats">
+              Today's Meals
+              {activeTab === "stats" && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="ml-2 h-6 w-6"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleRefresh();
+                  }}
+                  disabled={isRefreshing}
+                >
+                  <RefreshCw
+                    className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`}
+                  />
+                </Button>
+              )}
+            </TabsTrigger>
           </TabsList>
         </Tabs>
       </div>
@@ -264,6 +375,7 @@ const Dashboard = ({
               meals={todaysMeals}
               isLoading={isRefreshing}
               onMealDeleted={handleMealLogged}
+              key={`meals-${lastRefresh}`} // Force re-render on refresh
             />
 
             {userProfile?.currentWeight && userProfile?.targetWeight && (

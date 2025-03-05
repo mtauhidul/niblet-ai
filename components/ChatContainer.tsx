@@ -1,3 +1,4 @@
+// Updated ChatContainer.tsx with fix for multiple initial messages
 "use client";
 
 import { Button } from "@/components/ui/button";
@@ -55,6 +56,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
     initialAssistantId || null
   );
   const [error, setError] = useState<string | null>(null);
+  const [isInitialized, setIsInitialized] = useState(false);
 
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const { data: session } = useSession();
@@ -69,11 +71,17 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
     "Suggest a healthy dinner",
   ];
 
-  // Initialize assistant and thread
+  // Initialize assistant and thread - only once
   useEffect(() => {
+    // Skip initialization if already done or if threadId and assistantId already exist
+    if (isInitialized || (initialThreadId && initialAssistantId)) {
+      setIsInitialized(true);
+      return;
+    }
+
     const initializeChat = async () => {
       try {
-        // Create a new thread if one doesn't exist
+        // Only create a new thread if one doesn't exist
         if (!threadId) {
           setIsTyping(true);
 
@@ -109,12 +117,16 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
           );
 
           if (assistantMessages && assistantMessages.length > 0) {
+            // Only get the most recent message to avoid duplicates
+            const latestMessage =
+              assistantMessages[assistantMessages.length - 1];
+
             setMessages([
               {
-                id: assistantMessages[0].id,
+                id: latestMessage.id,
                 role: "assistant",
-                content: assistantMessages[0].content,
-                timestamp: assistantMessages[0].createdAt,
+                content: latestMessage.content,
+                timestamp: latestMessage.createdAt,
               },
             ]);
           } else {
@@ -132,27 +144,44 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
 
           setIsTyping(false);
         } else if (assistantId) {
-          // Load existing messages
+          // Load most recent message if we already have a thread
           setIsTyping(true);
 
-          // Run the assistant with an empty message to continue the conversation
-          // This is a way to get the message history without sending a new message
-          const assistantMessages = await runAssistant(
-            threadId,
-            assistantId,
-            aiPersonality,
-            handleToolCalls
-          );
+          try {
+            // Run the assistant with an empty message to continue the conversation
+            const assistantMessages = await runAssistant(
+              threadId,
+              assistantId,
+              aiPersonality,
+              handleToolCalls
+            );
 
-          if (assistantMessages && assistantMessages.length > 0) {
-            const formattedMessages = assistantMessages.map((msg) => ({
-              id: msg.id,
-              role: "assistant" as const,
-              content: msg.content,
-              timestamp: msg.createdAt,
-            }));
+            if (assistantMessages && assistantMessages.length > 0) {
+              // Only use the most recent message for existing threads
+              const latestMessage =
+                assistantMessages[assistantMessages.length - 1];
 
-            setMessages(formattedMessages);
+              setMessages([
+                {
+                  id: latestMessage.id,
+                  role: "assistant",
+                  content: latestMessage.content,
+                  timestamp: latestMessage.createdAt,
+                },
+              ]);
+            }
+          } catch (error) {
+            console.error("Error loading messages:", error);
+            // If there's an error, still show a fallback message
+            setMessages([
+              {
+                id: "welcome",
+                role: "assistant",
+                content:
+                  "Welcome back! How can I help with your nutrition today?",
+                timestamp: new Date(),
+              },
+            ]);
           }
 
           setIsTyping(false);
@@ -163,11 +192,22 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
           "There was a problem connecting to the assistant. Please try again later."
         );
         setIsTyping(false);
+      } finally {
+        setIsInitialized(true);
       }
     };
 
     initializeChat();
-  }, [threadId, assistantId, aiPersonality, session?.user?.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    threadId,
+    assistantId,
+    aiPersonality,
+    session?.user?.id,
+    initialThreadId,
+    initialAssistantId,
+    isInitialized,
+  ]);
 
   // Handle tool calls from the assistant
   const handleToolCalls = async (toolName: string, toolArgs: any) => {

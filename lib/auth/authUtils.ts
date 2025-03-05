@@ -14,36 +14,29 @@ import {
 import { createOrUpdateUser, getUserProfile } from "../firebase/models/user";
 
 /**
- * Handles sign in with Google, syncing both Firebase and NextAuth
+ * Improved Google sign-in function that handles both Firebase and NextAuth
  */
 export const signInWithGoogle = async (
   callbackUrl = "/dashboard"
 ): Promise<{ success: boolean; error?: string }> => {
   try {
-    // Set persistence to LOCAL to keep user logged in
-    await setPersistence(auth, browserLocalPersistence);
-
-    // 1. Sign in with Firebase
-    const provider = new GoogleAuthProvider();
-    const result = await signInWithPopup(auth, provider);
-    const user = result.user;
-
-    // 2. Create or update user in Firestore
-    await saveUserToFirestore(user);
-
-    // 3. Sign in with NextAuth to establish session
-    const nextAuthResult = await nextAuthSignIn("google", {
+    // Use NextAuth's built-in Google provider
+    const result = await nextAuthSignIn("google", {
       callbackUrl,
       redirect: false,
     });
 
-    if (nextAuthResult?.error) {
-      throw new Error(nextAuthResult.error);
+    // Check if NextAuth sign-in was successful
+    if (result?.error) {
+      console.error("NextAuth Google sign-in error:", result.error);
+      return {
+        success: false,
+        error: result.error || "Failed to sign in with Google",
+      };
     }
 
-    // Manually navigate to callback URL
+    // If successful, manually redirect - this helps avoid redirect_uri mismatch errors
     window.location.href = callbackUrl;
-
     return { success: true };
   } catch (error: any) {
     console.error("Google sign in error:", error);
@@ -51,6 +44,32 @@ export const signInWithGoogle = async (
       success: false,
       error: error.message || "Failed to sign in with Google",
     };
+  }
+};
+
+/**
+ * Original Firebase-specific Google sign-in as backup
+ */
+export const signInWithGoogleFirebase = async () => {
+  try {
+    // Set persistence to LOCAL to keep user logged in
+    await setPersistence(auth, browserLocalPersistence);
+
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({
+      prompt: "select_account",
+    });
+
+    const result = await signInWithPopup(auth, provider);
+    const user = result.user;
+
+    // Store user in Firestore
+    await saveUserToFirestore(user);
+
+    return user;
+  } catch (error: any) {
+    console.error("Firebase Google sign in error:", error);
+    throw error;
   }
 };
 

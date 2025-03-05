@@ -63,12 +63,21 @@ export default function Home() {
             >
               Sign In
             </Button>
-            <Button
+            {/* Below button not responsive on mobile */}
+            {/* <Button
               className="bg-blue-500 hover:bg-blue-600"
               onClick={() => router.push("/auth/signup")}
             >
               Get Started
-            </Button>
+            </Button> */}
+            {
+              <Button
+                className="bg-blue-500 hover:bg-blue-600 hidden md:inline-block"
+                onClick={() => router.push("/auth/signup")}
+              >
+                Get Started
+              </Button>
+            }
           </div>
         </div>
       </header>

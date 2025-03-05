@@ -1,3 +1,4 @@
+// lib/assistantService.ts
 import OpenAI from "openai";
 
 // Define personality types
@@ -22,16 +23,34 @@ export interface AssistantMessage {
 
 // Initialize OpenAI client with proper error handling
 const getOpenAIClient = (): OpenAI | null => {
-  const apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
-  if (!apiKey) {
-    console.error("OpenAI API key is missing");
+  try {
+    // In production, always use server-side API calls
+    if (typeof window !== "undefined") {
+      const apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
+      if (!apiKey) {
+        console.error("OpenAI API key is missing");
+        return null;
+      }
+
+      return new OpenAI({
+        apiKey,
+        dangerouslyAllowBrowser: true, // Only for development
+      });
+    } else {
+      const apiKey = process.env.OPENAI_API_KEY;
+      if (!apiKey) {
+        console.error("OpenAI API key is missing");
+        return null;
+      }
+
+      return new OpenAI({
+        apiKey,
+      });
+    }
+  } catch (error) {
+    console.error("Failed to initialize OpenAI client:", error);
     return null;
   }
-
-  return new OpenAI({
-    apiKey,
-    dangerouslyAllowBrowser: true, // Note: In production, use server-side API calls instead
-  });
 };
 
 // Assistant personalities with detailed instructions
@@ -64,6 +83,24 @@ const getOrCreateAssistant = async (
   if (!openai) return null;
 
   try {
+    // Check if there's an existing assistant ID in localStorage to avoid recreation
+    const storedAssistantId =
+      typeof window !== "undefined"
+        ? localStorage.getItem(`assistant_${personality}`)
+        : null;
+
+    if (storedAssistantId) {
+      try {
+        // Verify the assistant still exists
+        await openai.beta.assistants.retrieve(storedAssistantId);
+        return storedAssistantId;
+      } catch (error) {
+        console.log("Stored assistant not found, creating new one");
+        // Continue to create a new assistant
+      }
+    }
+
+    // Create a new assistant
     const assistant = await openai.beta.assistants.create({
       name: personalities[personality].name,
       instructions: personalities[personality].instructions,
@@ -170,6 +207,11 @@ const getOrCreateAssistant = async (
       ],
     });
 
+    // Store the assistant ID in localStorage to avoid recreation
+    if (typeof window !== "undefined") {
+      localStorage.setItem(`assistant_${personality}`, assistant.id);
+    }
+
     return assistant.id;
   } catch (error) {
     console.error("Error creating assistant:", error);
@@ -211,6 +253,85 @@ const addMessageToThread = async (
   }
 };
 
+// Function to handle retries for run completion
+const waitForRunCompletion = async (
+  openai: OpenAI,
+  threadId: string,
+  runId: string,
+  maxRetries = 10,
+  retryDelay = 1000,
+  onToolCall?: (toolName: string, toolArgs: any) => Promise<any>
+) => {
+  let retriesCount = 0;
+  let runStatus;
+
+  while (retriesCount < maxRetries) {
+    try {
+      runStatus = await openai.beta.threads.runs.retrieve(threadId, runId);
+
+      if (
+        ["completed", "failed", "cancelled", "expired"].includes(
+          runStatus.status
+        )
+      ) {
+        return runStatus;
+      }
+
+      // Handle required actions (function calling)
+      if (
+        runStatus.status === "requires_action" &&
+        runStatus.required_action?.submit_tool_outputs?.tool_calls &&
+        onToolCall
+      ) {
+        const toolCalls =
+          runStatus.required_action.submit_tool_outputs.tool_calls;
+        const toolOutputs = await Promise.all(
+          toolCalls.map(async (toolCall) => {
+            const functionName = toolCall.function.name;
+            const functionArgs = JSON.parse(toolCall.function.arguments);
+
+            let output = {
+              success: false,
+              message: "Function execution failed",
+            };
+
+            try {
+              output = await onToolCall(functionName, functionArgs);
+            } catch (error) {
+              console.error(`Error executing tool ${functionName}:`, error);
+            }
+
+            return {
+              tool_call_id: toolCall.id,
+              output: JSON.stringify(output),
+            };
+          })
+        );
+
+        // Submit the tool outputs back to the assistant
+        await openai.beta.threads.runs.submitToolOutputs(threadId, runId, {
+          tool_outputs: toolOutputs,
+        });
+      }
+
+      // Wait before checking again
+      await new Promise((resolve) => setTimeout(resolve, retryDelay));
+      retriesCount++;
+    } catch (error) {
+      // If the error is a rate limit error, wait longer and try again
+      if (error instanceof OpenAI.APIError && error.status === 429) {
+        await new Promise((resolve) => setTimeout(resolve, retryDelay * 2));
+        retriesCount++;
+      } else {
+        console.error("Error in run status polling:", error);
+        throw error;
+      }
+    }
+  }
+
+  throw new Error(`Run did not complete within ${maxRetries} retries`);
+};
+
 // Run assistant and get responses
 const runAssistant = async (
   threadId: string,
@@ -227,63 +348,26 @@ const runAssistant = async (
       temperature: personalities[personality].temperature,
     });
 
-    let runStatus = await openai.beta.threads.runs.retrieve(threadId, run.id);
-
-    // Poll for completion
-    while (
-      !["completed", "failed", "cancelled", "expired"].includes(
-        runStatus.status
-      )
-    ) {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      runStatus = await openai.beta.threads.runs.retrieve(threadId, run.id);
-
-      // Handle required actions (function calling)
-      if (
-        runStatus.status === "requires_action" &&
-        runStatus.required_action?.submit_tool_outputs?.tool_calls
-      ) {
-        const toolCalls =
-          runStatus.required_action.submit_tool_outputs.tool_calls;
-        const toolOutputs = await Promise.all(
-          toolCalls.map(async (toolCall) => {
-            const functionName = toolCall.function.name;
-            const functionArgs = JSON.parse(toolCall.function.arguments);
-
-            let output = {
-              success: false,
-              message: "Function execution failed",
-            };
-
-            if (onToolCall) {
-              try {
-                output = await onToolCall(functionName, functionArgs);
-              } catch (error) {
-                console.error(`Error executing tool ${functionName}:`, error);
-              }
-            }
-
-            return {
-              tool_call_id: toolCall.id,
-              output: JSON.stringify(output),
-            };
-          })
-        );
-
-        // Submit the tool outputs back to the assistant
-        await openai.beta.threads.runs.submitToolOutputs(threadId, run.id, {
-          tool_outputs: toolOutputs,
-        });
-      }
-    }
+    // Wait for run completion with error handling and retries
+    const runStatus = await waitForRunCompletion(
+      openai,
+      threadId,
+      run.id,
+      10,
+      1000,
+      onToolCall
+    );
 
     if (runStatus.status !== "completed") {
       console.error(`Run ended with status: ${runStatus.status}`);
       return [];
     }
 
-    // Get messages
-    const messages = await openai.beta.threads.messages.list(threadId);
+    // Get messages after completion
+    const messages = await openai.beta.threads.messages.list(threadId, {
+      order: "asc",
+      limit: 100,
+    });
 
     return messages.data
       .filter((msg) => msg.role === "assistant")
@@ -306,12 +390,31 @@ const transcribeAudio = async (audioBlob: Blob): Promise<string | null> => {
   if (!openai) return null;
 
   try {
-    const response = await openai.audio.transcriptions.create({
-      file: new File([audioBlob], "audio.wav", { type: audioBlob.type }),
-      model: "whisper-1",
-    });
+    const formData = new FormData();
+    formData.append(
+      "file",
+      new File([audioBlob], "audio.webm", { type: audioBlob.type })
+    );
+    formData.append("model", "whisper-1");
 
-    return response.text;
+    // Use fetch API for better control over the request
+    const response = await fetch(
+      "https://api.openai.com/v1/audio/transcriptions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.NEXT_PUBLIC_OPENAI_API_KEY}`,
+        },
+        body: formData,
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Transcription failed with status ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.text;
   } catch (error) {
     console.error("Error transcribing audio:", error);
     return null;
