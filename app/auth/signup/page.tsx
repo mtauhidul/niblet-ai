@@ -215,10 +215,8 @@ export default function SignUpPage() {
             </div>
             <div className="relative flex justify-center text-sm">
               {/* Back to home button */}
-              <Link href="/">
-                <a className="bg-white dark:bg-gray-800 px-2 text-gray-500 dark:text-gray-400">
-                  Back to Home
-                </a>
+              <Link href="/" className="px-4 bg-gray-50 dark:bg-gray-800">
+                Back to Home
               </Link>
             </div>
           </div>

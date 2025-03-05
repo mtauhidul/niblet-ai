@@ -300,92 +300,63 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Validate file is an image
-    if (!file.type.startsWith("image/")) {
-      setUploadError("Please select an image file");
-      return;
-    }
-
-    // Maximum file size (5MB)
-    const MAX_FILE_SIZE = 5 * 1024 * 1024;
-    if (file.size > MAX_FILE_SIZE) {
-      setUploadError("Image must be less than 5MB");
-      return;
-    }
+    setIsUploading(true);
+    setUploadError(null);
 
     try {
-      setIsUploading(true);
-      setUploadError(null);
+      // Validate file type
+      if (!file.type.startsWith("image/")) {
+        setUploadError("Please select an image file");
+        return;
+      }
 
-      // Create a FormData object to send the file
+      // Validate file size (5MB max)
+      const MAX_FILE_SIZE = 5 * 1024 * 1024;
+      if (file.size > MAX_FILE_SIZE) {
+        setUploadError("Image must be less than 5MB");
+        return;
+      }
+
+      console.log("Uploading file:", file.name, file.type, file.size);
+
+      // Create FormData object
       const formData = new FormData();
       formData.append("image", file);
 
-      // Send the image to your API endpoint
+      // Send to API
       const response = await fetch("/api/upload-image", {
         method: "POST",
         body: formData,
       });
 
+      console.log("Upload API response:", response);
+
       if (!response.ok) {
-        throw new Error("Failed to upload image");
+        const errorData = await response.json();
+        console.error("Upload failed:", errorData);
+        throw new Error(errorData.message || "Failed to upload image");
       }
 
       const data = await response.json();
+      console.log("Upload successful:", data.imageUrl);
 
-      // Add a new message with the image URL
-      if (threadId && assistantId) {
-        // Add user message to UI with image
-        const userMessage: Message = {
+      // Add image message to chat
+      setMessages((prev) => [
+        ...prev,
+        {
           id: `user-${Date.now()}`,
           role: "user",
-          content: `[Image uploaded]`,
+          content: "[Image uploaded]",
           timestamp: new Date(),
-          imageUrl: data.imageUrl, // Store the image URL
-        };
-
-        setMessages((prev) => [...prev, userMessage]);
-
-        // Send message to thread with image reference
-        await addMessageToThread(
-          threadId,
-          `I'm sending you an image. The URL is: ${data.imageUrl}`
-        );
-
-        // Run the assistant to analyze the image
-        setIsTyping(true);
-        const assistantMessages = await runAssistant(
-          threadId,
-          assistantId,
-          aiPersonality,
-          handleToolCalls
-        );
-
-        if (assistantMessages && assistantMessages.length > 0) {
-          // Get the latest message
-          const latestMessage = assistantMessages[assistantMessages.length - 1];
-
-          // Add assistant's response to messages
-          const assistantMessage: Message = {
-            id: latestMessage.id,
-            role: "assistant",
-            content: latestMessage.content,
-            timestamp: latestMessage.createdAt,
-          };
-
-          setMessages((prev) => [...prev, assistantMessage]);
-        }
-        setIsTyping(false);
-      }
+          imageUrl: data.imageUrl,
+        },
+      ]);
     } catch (error) {
       console.error("Error uploading image:", error);
       setUploadError("Failed to upload image. Please try again.");
     } finally {
       setIsUploading(false);
-      // Reset the file input
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 

@@ -1,11 +1,5 @@
-// app/api/upload-image/route.ts
 import { app } from "@/lib/firebase/clientApp";
-import {
-  getDownloadURL,
-  getStorage,
-  ref,
-  uploadBytesResumable,
-} from "firebase/storage";
+import { getDownloadURL, getStorage, ref, uploadBytes } from "firebase/storage";
 import { getToken } from "next-auth/jwt";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -14,17 +8,22 @@ const storage = getStorage(app);
 
 export async function POST(request: NextRequest) {
   try {
-    // Verify user is authenticated
+    console.log("Received upload request"); // Debugging
+
+    // Verify user authentication
     const token = await getToken({ req: request });
     if (!token?.sub) {
+      console.error("Unauthorized request");
       return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     }
 
-    // Get the form data from the request
+    // Get form data
     const formData = await request.formData();
-    const imageFile = formData.get("image") as File;
+    console.log("Form Data Received:", formData);
 
+    const imageFile = formData.get("image") as File;
     if (!imageFile) {
+      console.error("No image file provided");
       return NextResponse.json(
         { message: "No image file provided" },
         { status: 400 }
@@ -33,68 +32,37 @@ export async function POST(request: NextRequest) {
 
     // Validate file type
     if (!imageFile.type.startsWith("image/")) {
+      console.error("Invalid file type:", imageFile.type);
       return NextResponse.json(
         { message: "File must be an image" },
         { status: 400 }
       );
     }
 
-    // Convert File to Blob and then to ArrayBuffer
-    const bytes = await imageFile.arrayBuffer();
-    const buffer = Buffer.from(bytes);
+    // Convert File to ArrayBuffer
+    const fileBuffer = await imageFile.arrayBuffer();
 
-    // Generate a unique filename with user ID to prevent collisions
+    // Generate a unique filename
     const timestamp = Date.now();
     const fileName = `user_${
       token.sub
     }/images/${timestamp}_${imageFile.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
+    console.log("Uploading file to Firebase:", fileName);
 
-    // Create a storage reference
+    // Create storage reference
     const storageRef = ref(storage, fileName);
 
-    // Upload the file to Firebase Storage
-    const uploadTask = uploadBytesResumable(storageRef, buffer, {
-      contentType: imageFile.type,
-    });
+    // Upload file to Firebase Storage
+    await uploadBytes(storageRef, fileBuffer, { contentType: imageFile.type });
 
-    // Handle the upload as a Promise
-    return new Promise((resolve, reject) => {
-      uploadTask.on(
-        "state_changed",
-        (snapshot) => {
-          // Optional: Handle upload progress
-          const progress =
-            (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-          console.log(`Upload is ${progress}% done`);
-        },
-        (error) => {
-          // Handle unsuccessful uploads
-          console.error("Upload failed:", error);
-          resolve(
-            NextResponse.json({ message: "Upload failed" }, { status: 500 })
-          );
-        },
-        async () => {
-          // Handle successful upload
-          try {
-            // Get the download URL
-            const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+    // Get the download URL
+    const downloadURL = await getDownloadURL(storageRef);
+    console.log("File uploaded successfully:", downloadURL);
 
-            // Return success response with the image URL
-            resolve(
-              NextResponse.json({
-                message: "Image uploaded successfully",
-                imageUrl: downloadURL,
-              })
-            );
-          } catch (error) {
-            console.error("Error getting download URL:", error);
-            resolve(
-              NextResponse.json({ message: "Upload failed" }, { status: 500 })
-            );
-          }
-        }
-      );
+    // Return success response
+    return NextResponse.json({
+      message: "Image uploaded successfully",
+      imageUrl: downloadURL,
     });
   } catch (error) {
     console.error("Error processing image upload:", error);
