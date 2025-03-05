@@ -1,9 +1,12 @@
+// app/auth/signin/page.tsx
 "use client";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { signInWithEmail } from "@/lib/auth/authService";
+import { signInWithGoogle } from "@/lib/auth/authUtils";
 import { signIn, useSession } from "next-auth/react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -15,24 +18,31 @@ export default function SignInPage() {
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [mounted, setMounted] = useState(false);
 
   const router = useRouter();
   const searchParams = useSearchParams();
   const { status } = useSession();
 
+  // Set mounted state after component mounts to avoid hydration mismatch
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   // If already authenticated, redirect to dashboard
   useEffect(() => {
-    console.log(status);
-    if (status === "authenticated") {
+    if (mounted && status === "authenticated") {
       router.push("/dashboard");
     }
-  }, [status, router]);
+  }, [status, router, mounted]);
 
   // Get callback URL from search params or use default
   const callbackUrl = searchParams?.get("callbackUrl") || "/dashboard";
 
   // Handle any sign-in errors
   useEffect(() => {
+    if (!mounted) return;
+
     const errorParam = searchParams?.get("error");
     if (errorParam) {
       switch (errorParam) {
@@ -49,7 +59,7 @@ export default function SignInPage() {
           setError("An error occurred during sign in. Please try again.");
       }
     }
-  }, [searchParams]);
+  }, [searchParams, mounted]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -57,10 +67,15 @@ export default function SignInPage() {
     setError("");
 
     try {
+      // First, authenticate with Firebase
+      await signInWithEmail(email, password);
+
+      // Then use NextAuth for session management
       const result = await signIn("credentials", {
         email,
         password,
         redirect: false,
+        callbackUrl,
       });
 
       if (result?.error) {
@@ -69,18 +84,48 @@ export default function SignInPage() {
         // Successful login, navigate to callback URL or dashboard
         router.push(callbackUrl);
       }
-    } catch (error) {
-      setError("An unexpected error occurred");
+    } catch (error: any) {
+      console.error("Sign in error:", error);
+      setError(error.message || "An unexpected error occurred");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleGoogleSignIn = () => {
+  const handleGoogleSignIn = async () => {
     setIsLoading(true);
-    // Force redirect to true to ensure proper OAuth flow
-    signIn("google", { callbackUrl, redirect: true });
+    setError("");
+
+    try {
+      const result = await signInWithGoogle(callbackUrl);
+
+      if (!result.success) {
+        setError(result.error || "Failed to sign in with Google");
+        setIsLoading(false);
+      }
+      // Note: No need to setIsLoading(false) here as the page will redirect on success
+    } catch (error: any) {
+      console.error("Google sign in error:", error);
+      setError(error.message || "Failed to sign in with Google");
+      setIsLoading(false);
+    }
   };
+
+  // Prevent hydration errors by not rendering until mounted
+  if (!mounted) {
+    return null;
+  }
+
+  if (status === "loading") {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+          <p className="mt-4 text-gray-600 dark:text-gray-300">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-gray-900 p-4">

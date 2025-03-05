@@ -8,17 +8,31 @@ import { useEffect, useState } from "react";
 
 export default function Home() {
   const [loading, setLoading] = useState(true);
+  const [mounted, setMounted] = useState(false);
   const router = useRouter();
   const { data: session, status } = useSession();
 
+  // Set mounted state to prevent hydration mismatch
   useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    // Only run after mounting and status is resolved
+    if (!mounted) return;
+
     // If authenticated, redirect to dashboard
     if (status === "authenticated") {
       router.push("/dashboard");
     } else if (status !== "loading") {
       setLoading(false);
     }
-  }, [status, router]);
+  }, [status, router, mounted]);
+
+  // Prevent hydration errors by not rendering until mounted
+  if (!mounted) {
+    return null;
+  }
 
   if (status === "loading" || loading) {
     return (

@@ -6,7 +6,13 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Check if the path is protected
-  const protectedPaths = ["/dashboard", "/charts", "/admin", "/api/assistant"];
+  const protectedPaths = [
+    "/dashboard",
+    "/charts",
+    "/admin",
+    "/api/assistant",
+    "/profile",
+  ];
 
   // Paths that onboarded users should not access
   const onboardingPaths = ["/onboarding"];
@@ -31,7 +37,8 @@ export async function middleware(request: NextRequest) {
   const isPublicPath =
     pathname === "/" ||
     pathname.startsWith("/_next") ||
-    pathname.startsWith("/api/auth");
+    pathname.startsWith("/api/auth") ||
+    pathname.includes("."); // Static files
 
   // Get the token and check if the user is authenticated
   const token = await getToken({
@@ -41,29 +48,39 @@ export async function middleware(request: NextRequest) {
 
   // If it's a protected path and the user is not authenticated, redirect to sign in
   if (isProtectedPath && !token) {
-    return NextResponse.redirect(new URL("/auth/signin", request.url));
+    const signInUrl = new URL("/auth/signin", request.url);
+    // Add the callback URL to redirect after login
+    signInUrl.searchParams.set("callbackUrl", encodeURI(request.url));
+    return NextResponse.redirect(signInUrl);
   }
 
-  // For onboarding path, check if user has completed onboarding
+  // For onboarding path, check if user has completed onboarding (only if token exists)
   if (isOnboardingPath && token) {
-    // Get user profile from database
-    const response = await fetch(
-      `${process.env.NEXTAUTH_URL}/api/user/profile`,
-      {
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token.sub}`,
-        },
-      }
-    );
+    try {
+      // Get user profile from API
+      const response = await fetch(
+        `${
+          process.env.NEXTAUTH_URL || request.nextUrl.origin
+        }/api/user/profile`,
+        {
+          headers: {
+            "Content-Type": "application/json",
+            Cookie: request.headers.get("cookie") || "",
+          },
+        }
+      );
 
-    if (response.ok) {
-      const profile = await response.json();
+      if (response.ok) {
+        const profile = await response.json();
 
-      // If onboarding is completed, redirect to dashboard
-      if (profile?.onboardingCompleted) {
-        return NextResponse.redirect(new URL("/dashboard", request.url));
+        // If onboarding is completed, redirect to dashboard
+        if (profile?.onboardingCompleted) {
+          return NextResponse.redirect(new URL("/dashboard", request.url));
+        }
       }
+    } catch (error) {
+      console.error("Error checking onboarding status:", error);
+      // Continue without redirecting if there's an error checking status
     }
   }
 
@@ -76,7 +93,7 @@ export async function middleware(request: NextRequest) {
   return NextResponse.next();
 }
 
-// See "Matching Paths" below to learn more
+// Configure the matcher to only run middleware on specific paths
 export const config = {
   matcher: [
     "/dashboard/:path*",
@@ -85,5 +102,6 @@ export const config = {
     "/onboarding/:path*",
     "/auth/:path*",
     "/api/assistant/:path*",
+    "/profile/:path*",
   ],
 };

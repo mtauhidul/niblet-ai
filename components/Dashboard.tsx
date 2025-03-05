@@ -18,37 +18,53 @@ import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 interface UserProfile {
   userId: string;
   targetCalories?: number;
-  aiPersonality?: string; // Change PersonalityKey to string
+  aiPersonality?: string;
   threadId?: string;
   assistantId?: string;
   currentWeight?: number;
   targetWeight?: number;
 }
 
-const Dashboard = () => {
+interface DashboardProps {
+  aiPersonality?: PersonalityKey;
+}
+
+const Dashboard = ({
+  aiPersonality: propAiPersonality,
+}: DashboardProps = {}) => {
   const [caloriesConsumed, setCaloriesConsumed] = useState(0);
   const [caloriesRemaining, setCaloriesRemaining] = useState(0);
   const [targetCalories, setTargetCalories] = useState(2000); // Default target
   const [todaysMeals, setTodaysMeals] = useState<Meal[]>([]);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [aiPersonality, setAiPersonality] =
-    useState<PersonalityKey>("best-friend");
+  const [aiPersonality, setAiPersonality] = useState<PersonalityKey>(
+    propAiPersonality || "best-friend"
+  );
   const [activeTab, setActiveTab] = useState<"chat" | "stats">("chat");
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
   const { data: session, status } = useSession();
   const router = useRouter();
 
+  // Set mounted state to prevent hydration mismatch
   useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    // Only run client-side code after mounting
+    if (!mounted) return;
+
     // Redirect to sign in if not authenticated
     if (status === "unauthenticated") {
       router.push("/auth/signin");
-    } else if (status === "authenticated") {
+    } else if (status === "authenticated" && session?.user?.id) {
       fetchUserData();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, router]);
+  }, [status, router, session, mounted]);
 
   // Fetch user data and today's meals
   const fetchUserData = async () => {
@@ -142,11 +158,22 @@ const Dashboard = () => {
     }
   };
 
-  const handleSignOut = () => {
-    signOut({ callbackUrl: "/" });
+  const handleSignOut = async () => {
+    try {
+      await signOut({ callbackUrl: "/" });
+    } catch (error) {
+      console.error("Error signing out:", error);
+      // Force redirect to homepage on error
+      window.location.href = "/";
+    }
   };
 
-  if (isLoading) {
+  // Handle hydration properly - don't render until mounted
+  if (!mounted) {
+    return null;
+  }
+
+  if (status === "loading" || isLoading) {
     return (
       <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-900 p-4">
         <header className="py-4 border-b dark:border-gray-800 flex justify-between items-center">

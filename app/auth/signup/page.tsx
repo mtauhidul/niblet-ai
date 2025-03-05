@@ -1,3 +1,4 @@
+// app/auth/signup/page.tsx
 "use client";
 
 import { Button } from "@/components/ui/button";
@@ -19,17 +20,23 @@ export default function SignUpPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [mounted, setMounted] = useState(false);
 
   const router = useRouter();
   const { status } = useSession();
   const searchParams = useSearchParams();
 
+  // Set mounted state after component mounts to avoid hydration mismatch
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   // If already authenticated, redirect to dashboard
   useEffect(() => {
-    if (status === "authenticated") {
+    if (mounted && status === "authenticated") {
       router.push("/dashboard");
     }
-  }, [status, router]);
+  }, [status, router, mounted]);
 
   // Get callback URL from search params or use default
   const callbackUrl = searchParams?.get("callbackUrl") || "/onboarding";
@@ -99,6 +106,7 @@ export default function SignUpPage() {
 
       if (!result.success) {
         setError(result.error || "Failed to sign in with Google");
+        setIsLoading(false);
       }
       // No need to redirect - the signInWithGoogle function handles this
     } catch (error: any) {
@@ -106,6 +114,22 @@ export default function SignUpPage() {
       setIsLoading(false);
     }
   };
+
+  // Prevent hydration errors by not rendering until mounted
+  if (!mounted) {
+    return null;
+  }
+
+  if (status === "loading") {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+          <p className="mt-4 text-gray-600 dark:text-gray-300">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-gray-900 p-4">

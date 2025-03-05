@@ -1,15 +1,17 @@
 // lib/auth/authUtils.ts
 import { auth } from "@/lib/firebase/clientApp";
 import {
+  browserLocalPersistence,
   User as FirebaseUser,
   GoogleAuthProvider,
+  setPersistence,
   signInWithPopup,
 } from "firebase/auth";
 import {
   signIn as nextAuthSignIn,
   signOut as nextAuthSignOut,
 } from "next-auth/react";
-import { createOrUpdateUser } from "../firebase/models/user";
+import { createOrUpdateUser, getUserProfile } from "../firebase/models/user";
 
 /**
  * Handles sign in with Google, syncing both Firebase and NextAuth
@@ -18,6 +20,9 @@ export const signInWithGoogle = async (
   callbackUrl = "/dashboard"
 ): Promise<{ success: boolean; error?: string }> => {
   try {
+    // Set persistence to LOCAL to keep user logged in
+    await setPersistence(auth, browserLocalPersistence);
+
     // 1. Sign in with Firebase
     const provider = new GoogleAuthProvider();
     const result = await signInWithPopup(auth, provider);
@@ -27,7 +32,17 @@ export const signInWithGoogle = async (
     await saveUserToFirestore(user);
 
     // 3. Sign in with NextAuth to establish session
-    await nextAuthSignIn("google", { callbackUrl, redirect: true });
+    const nextAuthResult = await nextAuthSignIn("google", {
+      callbackUrl,
+      redirect: false,
+    });
+
+    if (nextAuthResult?.error) {
+      throw new Error(nextAuthResult.error);
+    }
+
+    // Manually navigate to callback URL
+    window.location.href = callbackUrl;
 
     return { success: true };
   } catch (error: any) {
@@ -82,12 +97,7 @@ export const checkNeedsOnboarding = async (
   userId: string
 ): Promise<boolean> => {
   try {
-    // You would need to implement this function to check your database
-    // For example, checking if the onboardingCompleted flag is set in the user profile
-    const userProfile = await import("../firebase/models/user").then((module) =>
-      module.getUserProfile(userId)
-    );
-
+    const userProfile = await getUserProfile(userId);
     return !userProfile || !userProfile.onboardingCompleted;
   } catch (error) {
     console.error("Error checking onboarding status:", error);
