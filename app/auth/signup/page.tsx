@@ -1,15 +1,15 @@
-// app/auth/signup/page.tsx
 "use client";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { registerUser, signInWithGoogle } from "@/lib/auth/authService";
-import { signIn } from "next-auth/react";
+import { registerUser } from "@/lib/auth/authService";
+import { signInWithGoogle } from "@/lib/auth/authUtils";
+import { signIn, useSession } from "next-auth/react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
 import { FaGoogle } from "react-icons/fa";
 
 export default function SignUpPage() {
@@ -19,12 +19,32 @@ export default function SignUpPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+
   const router = useRouter();
+  const { status } = useSession();
+  const searchParams = useSearchParams();
+
+  // If already authenticated, redirect to dashboard
+  useEffect(() => {
+    if (status === "authenticated") {
+      router.push("/dashboard");
+    }
+  }, [status, router]);
+
+  // Get callback URL from search params or use default
+  const callbackUrl = searchParams?.get("callbackUrl") || "/onboarding";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Basic validation
     if (password !== confirmPassword) {
       setError("Passwords don't match");
+      return;
+    }
+
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters");
       return;
     }
 
@@ -49,29 +69,47 @@ export default function SignUpPage() {
       if (result?.error) {
         setError("Failed to sign in after registration");
       } else {
+        // Redirect to onboarding after successful registration
         router.push("/onboarding");
       }
     } catch (error: any) {
-      setError(error.message || "An unexpected error occurred");
+      // Handle Firebase-specific errors
+      const errorCode = error.code;
+      if (errorCode === "auth/email-already-in-use") {
+        setError("Email already in use. Please sign in instead.");
+      } else if (errorCode === "auth/invalid-email") {
+        setError("Invalid email address.");
+      } else if (errorCode === "auth/weak-password") {
+        setError("Password is too weak. Please use a stronger password.");
+      } else {
+        setError(error.message || "An unexpected error occurred");
+      }
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleGoogleSignIn = async () => {
+    setIsLoading(true);
+    setError("");
+
     try {
-      await signInWithGoogle();
-      router.push("/onboarding");
+      // Use our improved Google sign-in function
+      const result = await signInWithGoogle("/onboarding");
+
+      if (!result.success) {
+        setError(result.error || "Failed to sign in with Google");
+      }
+      // No need to redirect - the signInWithGoogle function handles this
     } catch (error: any) {
       setError(error.message || "Failed to sign in with Google");
+      setIsLoading(false);
     }
   };
 
   return (
-    // Your existing JSX remains the same...
     <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-gray-900 p-4">
       <Card className="w-full max-w-md">
-        {/* Card content remains the same */}
         <CardHeader className="space-y-1 text-center">
           <div className="text-3xl font-bold mb-6">
             niblet<span className="text-blue-400">.ai</span>
@@ -79,8 +117,13 @@ export default function SignUpPage() {
           <CardTitle className="text-2xl">Create an Account</CardTitle>
         </CardHeader>
         <CardContent>
+          {error && (
+            <div className="mb-4 p-3 bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200 rounded-md text-sm">
+              {error}
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Form fields remain the same */}
             <div className="space-y-2">
               <Label htmlFor="name">Name</Label>
               <Input
@@ -111,6 +154,7 @@ export default function SignUpPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
+                minLength={8}
               />
             </div>
             <div className="space-y-2">
@@ -124,8 +168,6 @@ export default function SignUpPage() {
                 required
               />
             </div>
-
-            {error && <p className="text-red-500 text-sm">{error}</p>}
 
             <Button type="submit" className="w-full" disabled={isLoading}>
               {isLoading ? "Creating account..." : "Sign Up"}
@@ -160,6 +202,7 @@ export default function SignUpPage() {
             variant="outline"
             className="w-full mt-4 flex items-center justify-center gap-2"
             onClick={handleGoogleSignIn}
+            disabled={isLoading}
           >
             <FaGoogle /> Google
           </Button>

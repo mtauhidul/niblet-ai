@@ -1,8 +1,9 @@
 // app/api/assistant/route.ts
-import { getServerSession } from "next-auth";
+import { createMeal } from "@/lib/firebase/models/meal";
+import { logWeight } from "@/lib/firebase/models/weightLog";
+import { getToken } from "next-auth/jwt";
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
-// Adjust the import path as needed
 
 // Initialize OpenAI client
 const openai = new OpenAI({
@@ -14,150 +15,140 @@ const personalities = {
   "best-friend": {
     name: "Nibble (Best Friend)",
     instructions:
-      "You are Nibble, a friendly and supportive AI meal tracking assistant. Speak in a warm, casual tone like you're talking to a close friend. Use encouraging language, be empathetic, and occasionally add friendly emojis. Make the user feel comfortable sharing their food choices without judgment. Celebrate their wins and provide gentle guidance when they need it. Your goal is to help users track their meals, estimate calories, and provide nutritional guidance in a fun, approachable way.",
+      "You are Nibble, a friendly and supportive AI meal tracking assistant. Speak in a warm, casual tone like you're talking to a close friend. Use encouraging language, be empathetic, and occasionally add friendly emojis. Make the user feel comfortable sharing their food choices without judgment. Celebrate their wins and provide gentle guidance when they need it. Your goal is to help users track their meals, estimate calories, and provide nutritional guidance in a fun, approachable way. When users tell you about a meal, estimate its calories and nutritional content, then offer to log it for them.",
     temperature: 0.7,
   },
   "professional-coach": {
     name: "Nibble (Professional Coach)",
     instructions:
-      "You are Nibble, a professional nutrition coach and meal tracking assistant. Maintain a supportive but data-driven approach. Speak with authority and precision, focusing on nutritional facts and measurable progress. Use a structured, clear communication style. Provide detailed nutritional breakdowns and specific, actionable advice based on the user's goals. Your responses should be informative, evidence-based, and focused on optimizing the user's nutrition for their specific goals.",
+      "You are Nibble, a professional nutrition coach and meal tracking assistant. Maintain a supportive but data-driven approach. Speak with authority and precision, focusing on nutritional facts and measurable progress. Use a structured, clear communication style. Provide detailed nutritional breakdowns and specific, actionable advice based on the user's goals. Your responses should be informative, evidence-based, and focused on optimizing the user's nutrition for their specific goals. When users tell you about a meal, provide detailed macronutrient estimates and offer to log it with precise nutritional information.",
     temperature: 0.3,
   },
   "tough-love": {
     name: "Nibble (Tough Love)",
     instructions:
-      "You are Nibble, a no-nonsense, tough-love meal tracking assistant. Be direct, straightforward, and push users to be accountable. Don't sugarcoat feedback - if they're making poor choices, tell them directly. Use motivational language that challenges them to do better. Focus on results and holding users to high standards. Your goal is to push users out of their comfort zone, call out excuses, and drive real behavioral change through direct accountability.",
+      "You are Nibble, a no-nonsense, tough-love meal tracking assistant. Be direct, straightforward, and push users to be accountable. Don't sugarcoat feedback - if they're making poor choices, tell them directly. Use motivational language that challenges them to do better. Focus on results and holding users to high standards. Your goal is to push users out of their comfort zone, call out excuses, and drive real behavioral change through direct accountability. When users tell you about a meal, be straightforward about its nutritional value and challenge them to make better choices if needed.",
     temperature: 0.5,
   },
 };
 
-// Create or update assistant
+type PersonalityKey = keyof typeof personalities;
+
+// Get or create assistant
 async function getOrCreateAssistant(
-  personality: keyof typeof personalities = "best-friend"
+  personality: PersonalityKey = "best-friend"
 ) {
-  const assistantId = process.env.ASSISTANT_ID;
-
   try {
-    if (assistantId) {
-      // Update existing assistant with the desired personality
-      await openai.beta.assistants.update(assistantId, {
-        name: personalities[personality].name,
-        instructions: personalities[personality].instructions,
-      });
-      return assistantId;
-    } else {
-      // Create a new assistant
-      const assistant = await openai.beta.assistants.create({
-        name: personalities[personality].name,
-        instructions: personalities[personality].instructions,
-        model: "gpt-4-turbo",
-        tools: [
-          {
-            type: "function",
-            function: {
-              name: "log_meal",
-              description:
-                "Log a meal with estimated calories and nutrition information",
-              parameters: {
-                type: "object",
-                properties: {
-                  meal_name: {
-                    type: "string",
-                    description: "The name of the meal",
-                  },
-                  meal_type: {
-                    type: "string",
-                    description:
-                      "Type of meal (breakfast, lunch, dinner, snack)",
-                  },
-                  calories: {
-                    type: "number",
-                    description: "Estimated calories",
-                  },
-                  protein: {
-                    type: "number",
-                    description: "Protein in grams",
-                  },
-                  carbs: {
-                    type: "number",
-                    description: "Carbohydrates in grams",
-                  },
-                  fat: {
-                    type: "number",
-                    description: "Fat in grams",
-                  },
+    // Create a new assistant
+    const assistant = await openai.beta.assistants.create({
+      name: personalities[personality].name,
+      instructions: personalities[personality].instructions,
+      model: "gpt-4-turbo",
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "log_meal",
+            description:
+              "Log a meal with estimated calories and nutrition information",
+            parameters: {
+              type: "object",
+              properties: {
+                meal_name: {
+                  type: "string",
+                  description: "The name of the meal",
+                },
+                meal_type: {
+                  type: "string",
+                  description: "Type of meal (breakfast, lunch, dinner, snack)",
+                  enum: [
+                    "Breakfast",
+                    "Morning Snack",
+                    "Lunch",
+                    "Afternoon Snack",
+                    "Dinner",
+                    "Evening Snack",
+                    "Other",
+                  ],
+                },
+                calories: {
+                  type: "number",
+                  description: "Estimated calories",
+                },
+                protein: {
+                  type: "number",
+                  description: "Protein in grams",
+                },
+                carbs: {
+                  type: "number",
+                  description: "Carbohydrates in grams",
+                },
+                fat: {
+                  type: "number",
+                  description: "Fat in grams",
+                },
+                items: {
+                  type: "array",
+                  description: "List of food items in the meal",
                   items: {
-                    type: "array",
-                    description: "List of food items in the meal",
-                    items: {
-                      type: "string",
-                    },
-                  },
-                },
-                required: ["meal_name", "meal_type", "calories"],
-              },
-            },
-          },
-          {
-            type: "function",
-            function: {
-              name: "log_weight",
-              description: "Log the user's weight",
-              parameters: {
-                type: "object",
-                properties: {
-                  weight: {
-                    type: "number",
-                    description: "The user's weight in pounds",
-                  },
-                  date: {
                     type: "string",
-                    description:
-                      "The date of the weight measurement (YYYY-MM-DD format)",
                   },
                 },
-                required: ["weight"],
               },
+              required: ["meal_name", "meal_type", "calories"],
             },
           },
-          {
-            type: "function",
-            function: {
-              name: "get_meal_suggestions",
-              description:
-                "Get meal suggestions based on user preferences and remaining calories",
-              parameters: {
-                type: "object",
-                properties: {
-                  meal_type: {
-                    type: "string",
-                    description:
-                      "Type of meal (breakfast, lunch, dinner, snack)",
-                  },
-                  max_calories: {
-                    type: "number",
-                    description: "Maximum calories for the meal",
-                  },
-                  dietary_restrictions: {
-                    type: "array",
-                    description: "Any dietary restrictions",
-                    items: {
-                      type: "string",
-                    },
-                  },
+        },
+        {
+          type: "function",
+          function: {
+            name: "log_weight",
+            description: "Log the user's weight",
+            parameters: {
+              type: "object",
+              properties: {
+                weight: {
+                  type: "number",
+                  description: "The user's weight in pounds",
                 },
-                required: ["meal_type", "max_calories"],
+                date: {
+                  type: "string",
+                  description:
+                    "The date of the weight measurement (YYYY-MM-DD format)",
+                  format: "date",
+                },
               },
+              required: ["weight"],
             },
           },
-        ],
-      });
+        },
+        {
+          type: "function",
+          function: {
+            name: "get_nutrition_info",
+            description: "Get nutrition information for a food item or meal",
+            parameters: {
+              type: "object",
+              properties: {
+                food_item: {
+                  type: "string",
+                  description: "The food item or meal to look up",
+                },
+                serving_size: {
+                  type: "string",
+                  description: "The serving size (e.g., '1 cup', '100g')",
+                },
+              },
+              required: ["food_item"],
+            },
+          },
+        },
+      ],
+    });
 
-      // In a real app, you'd want to save this to an environment variable or database
-      return assistant.id;
-    }
+    return assistant.id;
   } catch (error) {
-    console.error("Error creating/updating assistant:", error);
+    console.error("Error creating assistant:", error);
     throw error;
   }
 }
@@ -165,14 +156,25 @@ async function getOrCreateAssistant(
 // Create a thread
 export async function POST(request: NextRequest) {
   // Verify user is authenticated
-  const session = await getServerSession();
-  if (!session?.user?.id) {
+  const token = await getToken({ req: request });
+  if (!token?.sub) {
     return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
   }
 
   try {
-    // Get or create assistant with default personality
-    const assistantId = await getOrCreateAssistant("best-friend");
+    // Get personality from request if available
+    let personality: PersonalityKey = "best-friend";
+    try {
+      const { personality: reqPersonality } = await request.json();
+      if (reqPersonality && reqPersonality in personalities) {
+        personality = reqPersonality as PersonalityKey;
+      }
+    } catch (e) {
+      // Use default personality if no valid JSON or personality specified
+    }
+
+    // Get or create assistant with personality
+    const assistantId = await getOrCreateAssistant(personality);
 
     // Create thread
     const thread = await openai.beta.threads.create();
@@ -193,8 +195,8 @@ export async function POST(request: NextRequest) {
 // Send message and get response
 export async function PUT(request: NextRequest) {
   // Verify user is authenticated
-  const session = await getServerSession();
-  if (!session?.user?.id) {
+  const token = await getToken({ req: request });
+  if (!token?.sub) {
     return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
   }
 
@@ -206,7 +208,7 @@ export async function PUT(request: NextRequest) {
     }: {
       threadId: string;
       message: string;
-      personality?: keyof typeof personalities;
+      personality?: PersonalityKey;
     } = await request.json();
 
     if (!threadId || !message) {
@@ -235,8 +237,11 @@ export async function PUT(request: NextRequest) {
     let runStatus = await openai.beta.threads.runs.retrieve(threadId, run.id);
 
     // Wait for the run to complete (polling)
-    // In a production app, you'd want to use a more sophisticated approach
-    while (runStatus.status !== "completed" && runStatus.status !== "failed") {
+    while (
+      !["completed", "failed", "cancelled", "expired"].includes(
+        runStatus.status
+      )
+    ) {
       // Wait for 1 second
       await new Promise((resolve) => setTimeout(resolve, 1000));
 
@@ -244,9 +249,12 @@ export async function PUT(request: NextRequest) {
       runStatus = await openai.beta.threads.runs.retrieve(threadId, run.id);
 
       // Handle function calls if needed
-      if (runStatus.status === "requires_action") {
+      if (
+        runStatus.status === "requires_action" &&
+        runStatus.required_action?.submit_tool_outputs
+      ) {
         const requiredActions =
-          runStatus.required_action?.submit_tool_outputs?.tool_calls || [];
+          runStatus.required_action.submit_tool_outputs.tool_calls;
         const toolOutputs = [];
 
         for (const action of requiredActions) {
@@ -256,15 +264,11 @@ export async function PUT(request: NextRequest) {
           // Handle different function calls
           let output = {};
 
-          // Modify the function call handler in your assistant route:
-          // Look for this section in your existing code:
-
           if (functionName === "log_meal") {
-            // In a real app, you would store this in a database
             try {
               // Create a meal document in Firestore
               const mealData = {
-                userId: session.user.id,
+                userId: token.sub,
                 name: functionArgs.meal_name,
                 mealType: functionArgs.meal_type,
                 calories: functionArgs.calories,
@@ -275,7 +279,6 @@ export async function PUT(request: NextRequest) {
                 date: new Date(),
               };
 
-              // Use your Firebase model
               const meal = await createMeal(mealData);
 
               output = {
@@ -291,11 +294,10 @@ export async function PUT(request: NextRequest) {
               };
             }
           } else if (functionName === "log_weight") {
-            // In a real app, you would store this in a database
             try {
-              // Log weight using Firebase model
+              // Log weight
               const weightData = await logWeight(
-                session.user.id,
+                token.sub,
                 functionArgs.weight,
                 functionArgs.date ? new Date(functionArgs.date) : undefined
               );
@@ -311,6 +313,19 @@ export async function PUT(request: NextRequest) {
                 message: "Failed to log weight. Please try again.",
               };
             }
+          } else if (functionName === "get_nutrition_info") {
+            // In a real app, you would call a nutrition API here
+            // For this example, we'll simulate a response
+            output = {
+              success: true,
+              message: `Retrieved nutrition info for ${functionArgs.food_item}`,
+              nutrition: {
+                calories: Math.floor(Math.random() * 500) + 100,
+                protein: Math.floor(Math.random() * 30) + 5,
+                carbs: Math.floor(Math.random() * 50) + 10,
+                fat: Math.floor(Math.random() * 20) + 2,
+              },
+            };
           }
 
           toolOutputs.push({
@@ -326,6 +341,14 @@ export async function PUT(request: NextRequest) {
       }
     }
 
+    // Check if run completed successfully
+    if (runStatus.status !== "completed") {
+      return NextResponse.json(
+        { error: `Run ended with status: ${runStatus.status}` },
+        { status: 500 }
+      );
+    }
+
     // Get the messages after the run completes
     const messages = await openai.beta.threads.messages.list(threadId);
 
@@ -335,7 +358,7 @@ export async function PUT(request: NextRequest) {
       .map((msg) => ({
         id: msg.id,
         content:
-          msg.content[0].type === "text" ? msg.content[0].text.value : "",
+          msg.content[0]?.type === "text" ? msg.content[0].text.value : "",
         createdAt: new Date(msg.created_at * 1000),
       }))
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()); // Sort by most recent
@@ -357,8 +380,8 @@ export async function PUT(request: NextRequest) {
 // Transcribe audio
 export async function PATCH(request: NextRequest) {
   // Verify user is authenticated
-  const session = await getServerSession();
-  if (!session?.user?.id) {
+  const token = await getToken({ req: request });
+  if (!token?.sub) {
     return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
   }
 
@@ -366,7 +389,7 @@ export async function PATCH(request: NextRequest) {
     const formData = await request.formData();
     const audioFile = formData.get("audio");
 
-    if (!audioFile) {
+    if (!audioFile || !(audioFile instanceof Blob)) {
       return NextResponse.json(
         { error: "Audio file is required" },
         { status: 400 }
@@ -374,9 +397,9 @@ export async function PATCH(request: NextRequest) {
     }
 
     // Convert to Blob
-    const buffer = Buffer.from(await (audioFile as Blob).arrayBuffer());
-    const file = new File([buffer], "audio.wav", {
-      type: (audioFile as File).type,
+    const buffer = Buffer.from(await audioFile.arrayBuffer());
+    const file = new File([buffer], "audio.webm", {
+      type: audioFile.type,
     });
 
     // Transcribe with Whisper API

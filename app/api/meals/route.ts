@@ -1,5 +1,9 @@
 // app/api/meals/route.ts
-import { createMeal, getMealsByUserAndDate } from "@/lib/firebase/models/meal";
+import {
+  createMeal,
+  getCaloriesSummary,
+  getMealsByUserAndDate,
+} from "@/lib/firebase/models/meal";
 import { getToken } from "next-auth/jwt";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -18,10 +22,18 @@ export async function GET(request: NextRequest) {
     const dateStr = url.searchParams.get("date");
     const date = dateStr ? new Date(dateStr) : undefined;
 
-    // Get meals
-    const meals = await getMealsByUserAndDate(token.sub, date);
+    // Get summary flag from query parameters
+    const summary = url.searchParams.get("summary") === "true";
 
-    return NextResponse.json(meals);
+    if (summary) {
+      // Return only the calories summary
+      const caloriesSummary = await getCaloriesSummary(token.sub, date);
+      return NextResponse.json(caloriesSummary);
+    } else {
+      // Get meals
+      const meals = await getMealsByUserAndDate(token.sub, date);
+      return NextResponse.json(meals);
+    }
   } catch (error) {
     console.error("Error fetching meals:", error);
     return NextResponse.json(
@@ -52,16 +64,40 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Ensure numbers are properly parsed
+    const calories =
+      typeof mealData.calories === "string"
+        ? parseFloat(mealData.calories)
+        : mealData.calories;
+
+    const protein = mealData.protein
+      ? typeof mealData.protein === "string"
+        ? parseFloat(mealData.protein)
+        : mealData.protein
+      : null;
+
+    const carbs = mealData.carbs
+      ? typeof mealData.carbs === "string"
+        ? parseFloat(mealData.carbs)
+        : mealData.carbs
+      : null;
+
+    const fat = mealData.fat
+      ? typeof mealData.fat === "string"
+        ? parseFloat(mealData.fat)
+        : mealData.fat
+      : null;
+
     // Create meal
     const meal = await createMeal({
       userId: token.sub,
       name: mealData.name,
-      calories: mealData.calories,
-      protein: mealData.protein || null,
-      carbs: mealData.carbs || null,
-      fat: mealData.fat || null,
-      mealType: mealData.mealType || null,
-      items: mealData.items || [],
+      calories: calories,
+      protein: protein,
+      carbs: carbs,
+      fat: fat,
+      mealType: mealData.mealType || "Other",
+      items: Array.isArray(mealData.items) ? mealData.items : [],
       date: mealData.date ? new Date(mealData.date) : new Date(),
     });
 

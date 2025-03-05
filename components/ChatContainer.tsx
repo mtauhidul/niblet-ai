@@ -1,10 +1,19 @@
-// components/ChatContainer.tsx
 "use client";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { updateUserProfile } from "@/lib/auth/authService";
+import {
+  addMessageToThread,
+  createThread,
+  getOrCreateAssistant,
+  PersonalityKey,
+  runAssistant,
+  transcribeAudio,
+} from "@/lib/assistantService";
+import { createMeal } from "@/lib/firebase/models/meal";
+import { createOrUpdateUserProfile } from "@/lib/firebase/models/user";
+import { logWeight } from "@/lib/firebase/models/weightLog";
 import { cn } from "@/lib/utils";
 import { Camera, Mic, MicOff, Send } from "lucide-react";
 import { useSession } from "next-auth/react";
@@ -18,15 +27,19 @@ interface Message {
 }
 
 interface ChatContainerProps {
-  aiPersonality?: string;
+  aiPersonality?: PersonalityKey;
   threadId?: string;
   assistantId?: string;
+  onMealLogged?: () => void;
+  onWeightLogged?: () => void;
 }
 
 const ChatContainer: React.FC<ChatContainerProps> = ({
   aiPersonality = "best-friend",
   threadId: initialThreadId,
   assistantId: initialAssistantId,
+  onMealLogged,
+  onWeightLogged,
 }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
@@ -41,6 +54,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   const [assistantId, setAssistantId] = useState<string | null>(
     initialAssistantId || null
   );
+  const [error, setError] = useState<string | null>(null);
 
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const { data: session } = useSession();
@@ -50,7 +64,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
     "Log a meal",
     "Estimate calories for a dish",
     "Get a recipe recommendation",
-    "Rate your last meal",
+    "Log my weight",
     "Plan a meal",
     "Suggest a healthy dinner",
   ];
@@ -62,61 +76,173 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
         // Create a new thread if one doesn't exist
         if (!threadId) {
           setIsTyping(true);
-          const response = await fetch("/api/assistant", { method: "POST" });
-          const data = await response.json();
-          setThreadId(data.threadId);
-          setAssistantId(data.assistantId);
+
+          // Create thread
+          const newThreadId = await createThread();
+          if (!newThreadId) throw new Error("Failed to create thread");
+
+          // Get or create assistant
+          const newAssistantId = await getOrCreateAssistant(aiPersonality);
+          if (!newAssistantId) throw new Error("Failed to create assistant");
+
+          setThreadId(newThreadId);
+          setAssistantId(newAssistantId);
 
           // Save thread ID to user profile if authenticated
           if (session?.user?.id) {
-            await updateUserProfile(session.user.id, {
-              threadId: data.threadId,
-              assistantId: data.assistantId,
+            await createOrUpdateUserProfile(session.user.id, {
+              threadId: newThreadId,
+              assistantId: newAssistantId,
+              aiPersonality: aiPersonality,
             });
           }
 
-          // Send welcome message
-          await fetch("/api/assistant", {
-            method: "PUT",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              threadId: data.threadId,
-              message: "Hello",
-              personality: aiPersonality,
-            }),
-          });
+          // Send welcome message and get initial response
+          await addMessageToThread(newThreadId, "Hello");
 
-          // Load welcome message
-          const messagesResponse = await fetch(
-            `/api/assistant/messages?threadId=${data.threadId}`
+          // Run the assistant to get a welcome message
+          const assistantMessages = await runAssistant(
+            newThreadId,
+            newAssistantId,
+            aiPersonality,
+            handleToolCalls
           );
-          if (messagesResponse.ok) {
-            const initialMessages = await messagesResponse.json();
-            setMessages(initialMessages);
+
+          if (assistantMessages && assistantMessages.length > 0) {
+            setMessages([
+              {
+                id: assistantMessages[0].id,
+                role: "assistant",
+                content: assistantMessages[0].content,
+                timestamp: assistantMessages[0].createdAt,
+              },
+            ]);
+          } else {
+            // Fallback welcome message if assistant response fails
+            setMessages([
+              {
+                id: "welcome",
+                role: "assistant",
+                content:
+                  "Hi there! I'm Nibble, your personal nutrition assistant. How can I help you today?",
+                timestamp: new Date(),
+              },
+            ]);
           }
+
           setIsTyping(false);
-        } else {
+        } else if (assistantId) {
           // Load existing messages
           setIsTyping(true);
-          const messagesResponse = await fetch(
-            `/api/assistant/messages?threadId=${threadId}`
+
+          // Run the assistant with an empty message to continue the conversation
+          // This is a way to get the message history without sending a new message
+          const assistantMessages = await runAssistant(
+            threadId,
+            assistantId,
+            aiPersonality,
+            handleToolCalls
           );
-          if (messagesResponse.ok) {
-            const initialMessages = await messagesResponse.json();
-            setMessages(initialMessages);
+
+          if (assistantMessages && assistantMessages.length > 0) {
+            const formattedMessages = assistantMessages.map((msg) => ({
+              id: msg.id,
+              role: "assistant" as const,
+              content: msg.content,
+              timestamp: msg.createdAt,
+            }));
+
+            setMessages(formattedMessages);
           }
+
           setIsTyping(false);
         }
       } catch (error) {
         console.error("Failed to initialize chat:", error);
+        setError(
+          "There was a problem connecting to the assistant. Please try again later."
+        );
         setIsTyping(false);
       }
     };
 
     initializeChat();
-  }, [threadId, aiPersonality, session?.user?.id]);
+  }, [threadId, assistantId, aiPersonality, session?.user?.id]);
+
+  // Handle tool calls from the assistant
+  const handleToolCalls = async (toolName: string, toolArgs: any) => {
+    if (!session?.user?.id) {
+      return { success: false, message: "User not authenticated" };
+    }
+
+    try {
+      if (toolName === "log_meal") {
+        // Create meal in database
+        const mealData = {
+          userId: session.user.id,
+          name: toolArgs.meal_name,
+          calories: toolArgs.calories,
+          protein: toolArgs.protein || 0,
+          carbs: toolArgs.carbs || 0,
+          fat: toolArgs.fat || 0,
+          mealType: toolArgs.meal_type,
+          items: toolArgs.items || [],
+          date: new Date(),
+        };
+
+        const meal = await createMeal(mealData);
+
+        // Trigger callback to update UI
+        if (onMealLogged) onMealLogged();
+
+        return {
+          success: true,
+          mealId: meal.id,
+          message: `Logged ${toolArgs.meal_name} (${toolArgs.calories} calories)`,
+        };
+      } else if (toolName === "log_weight") {
+        // Log weight
+        const weight = await logWeight(
+          session.user.id,
+          toolArgs.weight,
+          toolArgs.date ? new Date(toolArgs.date) : undefined
+        );
+
+        // Update user profile
+        await createOrUpdateUserProfile(session.user.id, {
+          currentWeight: toolArgs.weight,
+        });
+
+        // Trigger callback to update UI
+        if (onWeightLogged) onWeightLogged();
+
+        return {
+          success: true,
+          weightId: weight.id,
+          message: `Logged weight: ${toolArgs.weight} lbs`,
+        };
+      } else if (toolName === "get_nutrition_info") {
+        // This would normally call a nutrition database API
+        // For the demo, we'll just return a success message
+        return {
+          success: true,
+          message: "Retrieved nutrition information",
+          // In a real app, you would return actual nutrition data
+        };
+      }
+
+      return {
+        success: false,
+        message: `Unknown tool: ${toolName}`,
+      };
+    } catch (error) {
+      console.error(`Error executing ${toolName}:`, error);
+      return {
+        success: false,
+        message: `Error executing ${toolName}`,
+      };
+    }
+  };
 
   // Auto scroll to bottom of chat
   useEffect(() => {
@@ -125,7 +251,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
 
   // Send message to assistant
   const handleSendMessage = async () => {
-    if (!inputValue.trim() || !threadId || isTyping) return;
+    if (!inputValue.trim() || !threadId || !assistantId || isTyping) return;
 
     // Add user message to UI
     const userMessage: Message = {
@@ -138,47 +264,44 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
 
     // Clear input
     setInputValue("");
+    setError(null);
 
     try {
-      // Send message to OpenAI thread
+      // Send message to thread
       setIsTyping(true);
-      const response = await fetch("/api/assistant", {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          threadId,
-          message: inputValue,
-          personality: aiPersonality,
-        }),
-      });
+      const messageAdded = await addMessageToThread(threadId, inputValue);
 
-      const data = await response.json();
+      if (!messageAdded) {
+        throw new Error("Failed to send message");
+      }
 
-      // Add assistant's response to messages
-      if (data.response) {
+      // Run the assistant
+      const assistantMessages = await runAssistant(
+        threadId,
+        assistantId,
+        aiPersonality,
+        handleToolCalls
+      );
+
+      if (assistantMessages && assistantMessages.length > 0) {
+        // Get the latest message
+        const latestMessage = assistantMessages[assistantMessages.length - 1];
+
+        // Add assistant's response to messages
         const assistantMessage: Message = {
-          id: data.response.id,
+          id: latestMessage.id,
           role: "assistant",
-          content: data.response.content,
-          timestamp: new Date(data.response.createdAt),
+          content: latestMessage.content,
+          timestamp: latestMessage.createdAt,
         };
+
         setMessages((prev) => [...prev, assistantMessage]);
+      } else {
+        throw new Error("No response received");
       }
     } catch (error) {
       console.error("Failed to send message:", error);
-
-      // Add error message
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `error-${Date.now()}`,
-          role: "system",
-          content: "Sorry, I'm having trouble connecting. Please try again.",
-          timestamp: new Date(),
-        },
-      ]);
+      setError("Sorry, I'm having trouble connecting. Please try again.");
     } finally {
       setIsTyping(false);
     }
@@ -186,7 +309,8 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
 
   // Handle key press (Enter to send)
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
       handleSendMessage();
     }
   };
@@ -200,7 +324,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+      const recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
       const chunks: BlobPart[] = [];
 
       recorder.ondataavailable = (e) => {
@@ -212,84 +336,76 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
       recorder.onstop = async () => {
         const audioBlob = new Blob(chunks, { type: "audio/webm" });
 
-        // Create FormData to send the audio file
-        const formData = new FormData();
-        formData.append("audio", audioBlob);
-
         try {
           setIsTyping(true);
+          setError(null);
 
-          // Send to Whisper API via our own API route
-          const response = await fetch("/api/assistant", {
-            method: "PATCH",
-            body: formData,
-          });
+          // Transcribe audio
+          const transcribedText = await transcribeAudio(audioBlob);
 
-          const data = await response.json();
+          if (!transcribedText) {
+            throw new Error("Failed to transcribe audio");
+          }
 
-          if (data.text) {
-            setInputValue(data.text);
-            // Auto-send the transcribed message
+          // Add transcribed text to input
+          setInputValue(transcribedText);
+
+          // If we have the thread and assistant IDs, automatically send the message
+          if (threadId && assistantId) {
+            // Add user message to UI
             const userMessage: Message = {
               id: `user-${Date.now()}`,
               role: "user",
-              content: data.text,
+              content: transcribedText,
               timestamp: new Date(),
             };
+
             setMessages((prev) => [...prev, userMessage]);
 
-            // Send to API
-            const assistantResponse = await fetch("/api/assistant", {
-              method: "PUT",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                threadId,
-                message: data.text,
-                personality: aiPersonality,
-              }),
-            });
+            // Send message to thread
+            const messageAdded = await addMessageToThread(
+              threadId,
+              transcribedText
+            );
 
-            const assistantData = await assistantResponse.json();
-
-            // Add assistant's response to messages
-            if (assistantData.response) {
-              const assistantMessage: Message = {
-                id: assistantData.response.id,
-                role: "assistant",
-                content: assistantData.response.content,
-                timestamp: new Date(assistantData.response.createdAt),
-              };
-              setMessages((prev) => [...prev, assistantMessage]);
+            if (!messageAdded) {
+              throw new Error("Failed to send message");
             }
-          } else {
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: `error-${Date.now()}`,
-                role: "system",
-                content:
-                  "Sorry, I couldn't understand the audio. Please try again.",
-                timestamp: new Date(),
-              },
-            ]);
+
+            // Run the assistant
+            const assistantMessages = await runAssistant(
+              threadId,
+              assistantId,
+              aiPersonality,
+              handleToolCalls
+            );
+
+            if (assistantMessages && assistantMessages.length > 0) {
+              // Get the latest message
+              const latestMessage =
+                assistantMessages[assistantMessages.length - 1];
+
+              // Add assistant's response to messages
+              const assistantMessage: Message = {
+                id: latestMessage.id,
+                role: "assistant",
+                content: latestMessage.content,
+                timestamp: latestMessage.createdAt,
+              };
+
+              setMessages((prev) => [...prev, assistantMessage]);
+
+              // Clear input after sending
+              setInputValue("");
+            }
           }
         } catch (error) {
-          console.error("Transcription error:", error);
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `error-${Date.now()}`,
-              role: "system",
-              content:
-                "Sorry, there was an error processing your voice message. Please try again or type your message.",
-              timestamp: new Date(),
-            },
-          ]);
+          console.error("Error processing voice:", error);
+          setError(
+            "Sorry, I couldn't process your voice message. Please try again."
+          );
         } finally {
           setIsTyping(false);
-          setInputValue(""); // Clear input field after sending
         }
       };
 
@@ -299,16 +415,9 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
       setIsRecording(true);
     } catch (error) {
       console.error("Error starting recording:", error);
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `error-${Date.now()}`,
-          role: "system",
-          content:
-            "Sorry, I couldn't access your microphone. Please check your browser permissions or type your message instead.",
-          timestamp: new Date(),
-        },
-      ]);
+      setError(
+        "I couldn't access your microphone. Please check your browser permissions."
+      );
     }
   };
 
@@ -316,8 +425,11 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
     if (mediaRecorder && isRecording) {
       mediaRecorder.stop();
       setIsRecording(false);
+
       // Stop all audio tracks
-      mediaRecorder.stream.getTracks().forEach((track) => track.stop());
+      if (mediaRecorder.stream) {
+        mediaRecorder.stream.getTracks().forEach((track) => track.stop());
+      }
     }
   };
 
@@ -334,13 +446,20 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
       {/* Chat Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {/* Initial prompt if no messages */}
-        {messages.length === 0 && !isTyping && (
+        {messages.length === 0 && !isTyping && !error && (
           <Card className="p-4">
             <p>
-              What would you like to do? Log a meal. Ask me to estimate calories
-              for a dish. Get a recipe recommendation.
+              What would you like to do? Log a meal, estimate calories for a
+              dish, or get a recipe recommendation.
             </p>
           </Card>
+        )}
+
+        {/* Error message */}
+        {error && (
+          <div className="mx-auto bg-red-100 dark:bg-red-900 p-3 rounded-lg text-center">
+            {error}
+          </div>
         )}
 
         {/* Chat messages */}
@@ -395,7 +514,11 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
       {/* Input Area */}
       <div className="p-4 border-t dark:border-gray-800">
         <div className="flex items-center space-x-2">
-          <Button size="icon" variant="outline">
+          <Button
+            size="icon"
+            variant="outline"
+            disabled={true} // Disabled until image upload feature is implemented
+          >
             <Camera className="h-5 w-5" />
           </Button>
           <Input
@@ -410,6 +533,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
             size="icon"
             variant={isRecording ? "destructive" : "outline"}
             onClick={toggleRecording}
+            disabled={isTyping}
           >
             {isRecording ? (
               <MicOff className="h-5 w-5" />
@@ -420,7 +544,9 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
           <Button
             size="icon"
             onClick={handleSendMessage}
-            disabled={!inputValue.trim() || isTyping}
+            disabled={
+              !inputValue.trim() || isTyping || !threadId || !assistantId
+            }
           >
             <Send className="h-5 w-5" />
           </Button>

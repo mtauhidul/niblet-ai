@@ -1,530 +1,210 @@
-// components/ConversationalOnboarding.tsx
 "use client";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { updateUserProfile } from "@/lib/auth/authService";
-import { Mic, MicOff, Send } from "lucide-react";
+import {
+  addMessageToThread,
+  createThread,
+  getOrCreateAssistant,
+  runAssistant,
+  transcribeAudio,
+} from "@/lib/assistantService";
+import { createOrUpdateUserProfile } from "@/lib/firebase/models/user";
+import { ArrowRight, Mic, MicOff, Send } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { Skeleton } from "./ui/skeleton";
 
 interface Message {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
+  timestamp: Date;
 }
 
-interface UserData {
-  name: string;
-  age: number | null;
-  gender: string;
-  currentWeight: number | null;
-  targetWeight: number | null;
-  height: number | null;
-  activityLevel: string;
-  dietaryPreferences: string[];
-  allergies: string[];
-  goalType: string;
-}
-
+/**
+ * ConversationalOnboarding component that guides users through profile setup
+ * using a chat-based interface with AI assistance
+ */
 const ConversationalOnboarding = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isTyping, setIsTyping] = useState(false);
-  const [stage, setStage] = useState<
-    "intro" | "personal" | "goals" | "dietary" | "complete"
-  >("intro");
-  const [userData, setUserData] = useState<UserData>({
-    name: "",
-    age: null,
-    gender: "",
-    currentWeight: null,
-    targetWeight: null,
-    height: null,
-    activityLevel: "",
-    dietaryPreferences: [],
-    allergies: [],
-    goalType: "",
-  });
   const [isRecording, setIsRecording] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(
     null
   );
   const [threadId, setThreadId] = useState<string | null>(null);
+  const [assistantId, setAssistantId] = useState<string | null>(null);
+  const [isComplete, setIsComplete] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [isInitializing, setIsInitializing] = useState(true);
 
   const messageEndRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
 
   // Initialize chat
   useEffect(() => {
-    // Set name from session if available
-    if (session?.user?.name) {
-      setUserData((prev) => ({
-        ...prev,
-        name: session.user.name || "",
-      }));
-    }
-
-    const initializeChat = async () => {
-      // Create thread
+    const initializeOnboarding = async () => {
+      setIsInitializing(true);
       try {
-        const response = await fetch("/api/assistant", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-        });
+        // Create thread and assistant for onboarding
+        const newThreadId = await createThread();
+        if (!newThreadId) throw new Error("Failed to create thread");
 
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error("API Error:", response.status, errorText);
-          throw new Error(`API error: ${response.status}`);
-        }
+        const newAssistantId = await getOrCreateAssistant("best-friend");
+        if (!newAssistantId) throw new Error("Failed to create assistant");
 
-        const data = await response.json();
-        setThreadId(data.threadId);
+        setThreadId(newThreadId);
+        setAssistantId(newAssistantId);
 
-        // Add welcome message
-        setIsTyping(true);
-        setTimeout(() => {
+        // Add initial system message to guide the assistant
+        await addMessageToThread(
+          newThreadId,
+          "I'm starting the onboarding process. Please help me collect information about the user " +
+            "including their name, age, gender, current weight, target weight, height, activity level, " +
+            "and dietary goals. Walk them through this process step by step in a friendly conversational way."
+        );
+
+        // Run the assistant to get a welcome message
+        const assistantMessages = await runAssistant(
+          newThreadId,
+          newAssistantId,
+          "best-friend"
+        );
+
+        if (assistantMessages && assistantMessages.length > 0) {
+          const welcomeMessage =
+            assistantMessages[assistantMessages.length - 1];
+          setMessages([
+            {
+              id: welcomeMessage.id,
+              role: "assistant",
+              content: welcomeMessage.content,
+              timestamp: welcomeMessage.createdAt,
+            },
+          ]);
+        } else {
+          // Fallback welcome message
           setMessages([
             {
               id: "welcome",
               role: "assistant",
-              content: `Hi there${
-                session?.user?.name ? ", " + session.user.name : ""
-              }! 👋 I'm Nibble, your personal nutrition assistant. I'm excited to get to know you so I can help you reach your health goals! ${
-                !session?.user?.name
-                  ? "First, what's your name?"
-                  : "What's your age?"
-              }`,
+              content:
+                "Welcome to Niblet! I'm here to help you set up your profile so we can track your nutrition goals. Let's start with some basic information. What's your name?",
+              timestamp: new Date(),
             },
           ]);
-          setIsTyping(false);
-
-          // If we already have the name, skip to personal stage
-          if (session?.user?.name) {
-            setStage("personal");
-          }
-        }, 1000);
+        }
       } catch (error) {
-        console.error("Error initializing chat:", error);
-        setMessages([
-          {
-            id: "error",
-            role: "system",
-            content:
-              "There was an error connecting to the assistant. Please refresh the page and try again.",
-          },
-        ]);
+        console.error("Failed to initialize onboarding:", error);
+        setError(
+          "There was a problem setting up your onboarding. Please try again."
+        );
+      } finally {
+        setIsInitializing(false);
       }
     };
 
-    initializeChat();
-  }, [session]);
+    // Only initialize if authenticated
+    if (status === "authenticated") {
+      initializeOnboarding();
+    } else if (status === "unauthenticated") {
+      router.push("/auth/signin");
+    }
+  }, [status, router]);
 
   // Auto scroll to bottom of chat
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
 
-  // Process responses based on current stage
-  const processResponse = (userMessage: string) => {
-    // Add user message to chat
-    const newMessage: Message = {
-      id: `user-${Date.now()}`,
-      role: "user",
-      content: userMessage,
-    };
-    setMessages((prev) => [...prev, newMessage]);
+  // Check for completion keywords in assistant messages
+  useEffect(() => {
+    if (messages.length > 0) {
+      const lastMessage = messages[messages.length - 1];
+      if (lastMessage.role === "assistant") {
+        // Check if the message indicates onboarding is complete
+        const completionPhrases = [
+          "all set",
+          "profile is complete",
+          "ready to start",
+          "completed your profile",
+          "ready to begin",
+        ];
 
-    // Process based on current stage
-    if (stage === "intro") {
-      // Capture name
-      setUserData((prev) => ({ ...prev, name: userMessage }));
-      setIsTyping(true);
+        const messageText = lastMessage.content.toLowerCase();
+        const isOnboardingComplete = completionPhrases.some((phrase) =>
+          messageText.includes(phrase)
+        );
 
-      setTimeout(() => {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `assistant-${Date.now()}`,
-            role: "assistant",
-            content: `Nice to meet you, ${userMessage}! 😊 Now, I'd like to know a bit about you so I can better help with your nutrition. What's your age?`,
-          },
-        ]);
-        setIsTyping(false);
-        setStage("personal");
-      }, 1000);
-    } else if (stage === "personal") {
-      // Process personal info sequentially
-      if (!userData.age) {
-        // Capture age
-        const age = parseInt(userMessage);
-        if (isNaN(age)) {
-          // Invalid age
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `assistant-${Date.now()}`,
-              role: "assistant",
-              content:
-                "I need your age as a number to help customize your nutrition plan. Can you please share that with me?",
-            },
-          ]);
-          return;
+        if (isOnboardingComplete) {
+          setIsComplete(true);
         }
-
-        setUserData((prev) => ({ ...prev, age }));
-        setIsTyping(true);
-
-        setTimeout(() => {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `assistant-${Date.now()}`,
-              role: "assistant",
-              content: `Thanks! What's your gender? This helps me calculate your nutritional needs more accurately.`,
-            },
-          ]);
-          setIsTyping(false);
-        }, 1000);
-      } else if (!userData.gender) {
-        // Capture gender
-        setUserData((prev) => ({ ...prev, gender: userMessage }));
-        setIsTyping(true);
-
-        setTimeout(() => {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `assistant-${Date.now()}`,
-              role: "assistant",
-              content: `Great! What's your current weight in pounds?`,
-            },
-          ]);
-          setIsTyping(false);
-        }, 1000);
-      } else if (!userData.currentWeight) {
-        // Capture current weight
-        const weight = parseFloat(userMessage);
-        if (isNaN(weight)) {
-          // Invalid weight
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `assistant-${Date.now()}`,
-              role: "assistant",
-              content:
-                "I need your weight as a number to help customize your nutrition plan. Can you please share that with me?",
-            },
-          ]);
-          return;
-        }
-
-        setUserData((prev) => ({ ...prev, currentWeight: weight }));
-        setIsTyping(true);
-
-        setTimeout(() => {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `assistant-${Date.now()}`,
-              role: "assistant",
-              content: `Thanks! And how tall are you in inches? (For example, 5'10" is 70 inches)`,
-            },
-          ]);
-          setIsTyping(false);
-        }, 1000);
-      } else if (!userData.height) {
-        // Capture height
-        const height = parseFloat(userMessage);
-        if (isNaN(height)) {
-          // Invalid height
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `assistant-${Date.now()}`,
-              role: "assistant",
-              content:
-                "I need your height as a number in inches to help customize your nutrition plan. Can you please share that with me?",
-            },
-          ]);
-          return;
-        }
-
-        setUserData((prev) => ({ ...prev, height }));
-        setIsTyping(true);
-
-        setTimeout(() => {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `assistant-${Date.now()}`,
-              role: "assistant",
-              content: `Great! How would you describe your activity level? (Sedentary, Lightly Active, Moderately Active, Very Active, or Extremely Active)`,
-            },
-          ]);
-          setIsTyping(false);
-        }, 1000);
-      } else if (!userData.activityLevel) {
-        // Capture activity level
-        setUserData((prev) => ({ ...prev, activityLevel: userMessage }));
-        setIsTyping(true);
-
-        // Move to goals stage
-        setTimeout(() => {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `assistant-${Date.now()}`,
-              role: "assistant",
-              content: `Thanks for sharing all that info, ${userData.name}! Now, what's your primary goal? (Weight Loss, Weight Maintenance, or Muscle Gain)`,
-            },
-          ]);
-          setIsTyping(false);
-          setStage("goals");
-        }, 1000);
-      }
-    } else if (stage === "goals") {
-      // Process goals info
-      if (!userData.goalType) {
-        // Capture goal type
-        setUserData((prev) => ({ ...prev, goalType: userMessage }));
-        setIsTyping(true);
-
-        setTimeout(() => {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `assistant-${Date.now()}`,
-              role: "assistant",
-              content: `Great choice! What's your target weight in pounds? If you're focusing on maintenance, just enter your current weight.`,
-            },
-          ]);
-          setIsTyping(false);
-        }, 1000);
-      } else if (!userData.targetWeight) {
-        // Capture target weight
-        const targetWeight = parseFloat(userMessage);
-        if (isNaN(targetWeight)) {
-          // Invalid target weight
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `assistant-${Date.now()}`,
-              role: "assistant",
-              content:
-                "I need your target weight as a number to help customize your nutrition plan. Can you please share that with me?",
-            },
-          ]);
-          return;
-        }
-
-        setUserData((prev) => ({ ...prev, targetWeight }));
-        setIsTyping(true);
-
-        // Move to dietary stage
-        setTimeout(() => {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `assistant-${Date.now()}`,
-              role: "assistant",
-              content: `Perfect! Now, do you have any dietary preferences or restrictions? (e.g., Vegetarian, Vegan, Pescatarian, Keto, Gluten-Free, etc.) You can list multiple or say "None" if you don't have any.`,
-            },
-          ]);
-          setIsTyping(false);
-          setStage("dietary");
-        }, 1000);
-      }
-    } else if (stage === "dietary") {
-      // Process dietary preferences and allergies
-      if (userData.dietaryPreferences.length === 0) {
-        // Capture dietary preferences
-        const preferences =
-          userMessage.toLowerCase() === "none"
-            ? []
-            : userMessage.split(",").map((pref) => pref.trim());
-
-        setUserData((prev) => ({ ...prev, dietaryPreferences: preferences }));
-        setIsTyping(true);
-
-        setTimeout(() => {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `assistant-${Date.now()}`,
-              role: "assistant",
-              content: `Got it! Do you have any food allergies I should know about? Please list them or say "None" if you don't have any.`,
-            },
-          ]);
-          setIsTyping(false);
-        }, 1000);
-      } else {
-        // We've already captured preferences, now capture allergies
-        const allergies =
-          userMessage.toLowerCase() === "none"
-            ? []
-            : userMessage.split(",").map((allergy) => allergy.trim());
-
-        setUserData((prev) => ({ ...prev, allergies }));
-        setIsTyping(true);
-
-        // Complete the onboarding
-        setTimeout(() => {
-          // Calculate BMI and TDEE for the summary
-          if (!userData.height || !userData.currentWeight || !userData.age) {
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: `error-${Date.now()}`,
-                role: "system",
-                content:
-                  "Some required information is missing. Please restart the onboarding process.",
-              },
-            ]);
-            return;
-          }
-
-          const heightInMeters = userData.height * 0.0254;
-          const weightInKg = userData.currentWeight * 0.453592;
-          const bmi = weightInKg / (heightInMeters * heightInMeters);
-
-          // Basic TDEE calculation (this is simplified)
-          let bmr = 0;
-          if (userData.gender.toLowerCase() === "male") {
-            bmr =
-              88.362 +
-              13.397 * weightInKg +
-              4.799 * userData.height * 2.54 -
-              5.677 * (userData.age || 0);
-          } else {
-            bmr =
-              447.593 +
-              9.247 * weightInKg +
-              3.098 * userData.height * 2.54 -
-              4.33 * (userData.age || 0);
-          }
-
-          // Activity multiplier
-          let activityMultiplier = 1.2; // Default to sedentary
-          const activityLevel = userData.activityLevel.toLowerCase();
-          if (activityLevel.includes("lightly")) {
-            activityMultiplier = 1.375;
-          } else if (activityLevel.includes("moderately")) {
-            activityMultiplier = 1.55;
-          } else if (activityLevel.includes("very")) {
-            activityMultiplier = 1.725;
-          } else if (activityLevel.includes("extremely")) {
-            activityMultiplier = 1.9;
-          }
-
-          const tdee = Math.round(bmr * activityMultiplier);
-
-          // Calculate target calories
-          let targetCalories = tdee;
-          if (userData.goalType.toLowerCase().includes("loss")) {
-            targetCalories = Math.round(tdee * 0.8); // 20% deficit
-          } else if (userData.goalType.toLowerCase().includes("gain")) {
-            targetCalories = Math.round(tdee * 1.1); // 10% surplus
-          }
-
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `assistant-${Date.now()}`,
-              role: "assistant",
-              content: `Thank you for all this information, ${
-                userData.name
-              }! 🎉 I've created your personal profile:
-
-**Basic Information:**
-- Age: ${userData.age}
-- Current Weight: ${userData.currentWeight} lbs
-- Target Weight: ${userData.targetWeight} lbs
-- Height: ${userData.height} inches
-- Activity Level: ${userData.activityLevel}
-
-**Nutrition Plan:**
-- Goal: ${userData.goalType}
-- Estimated Daily Calories: ${targetCalories} calories
-- BMI: ${bmi.toFixed(1)}
-
-I'll use this information to provide personalized meal suggestions and track your progress. You can always update your preferences in settings later.
-
-Ready to start your journey?`,
-            },
-          ]);
-          setIsTyping(false);
-          setStage("complete");
-
-          // Save the user profile if we have a valid session
-          if (session?.user?.id) {
-            saveUserProfile(targetCalories, tdee, bmi);
-          }
-        }, 1500);
       }
     }
-  };
-
-  // Save user profile to database
-  const saveUserProfile = async (
-    targetCalories: number,
-    tdee: number,
-    bmi: number
-  ) => {
-    if (!session?.user?.id) {
-      console.error("No user ID found in session");
-      return;
-    }
-
-    try {
-      const targetProtein = Math.round(
-        (userData.goalType.toLowerCase().includes("gain") ? 1.8 : 1.2) *
-          (userData.currentWeight || 0) *
-          0.453592
-      );
-      const targetFat = Math.round((targetCalories * 0.25) / 9); // 25% of calories from fat
-      const targetCarbs = Math.round(
-        (targetCalories - targetProtein * 4 - targetFat * 9) / 4
-      );
-
-      await updateUserProfile(session.user.id, {
-        age: userData.age || undefined,
-        gender: userData.gender,
-        currentWeight: userData.currentWeight || undefined,
-        targetWeight: userData.targetWeight || undefined,
-        height: userData.height || undefined,
-        activityLevel: userData.activityLevel,
-        dietaryPreferences: userData.dietaryPreferences,
-        allergies: userData.allergies,
-        goalType: userData.goalType,
-        targetCalories: targetCalories,
-        targetProtein: targetProtein,
-        targetCarbs: targetCarbs,
-        targetFat: targetFat,
-        threadId: threadId || undefined,
-        onboardingCompleted: true,
-      });
-    } catch (error) {
-      console.error("Error saving user profile:", error);
-    }
-  };
+  }, [messages]);
 
   // Send message to assistant
-  const handleSendMessage = () => {
-    if (!inputValue.trim()) return;
+  const handleSendMessage = async () => {
+    if (!inputValue.trim() || !threadId || !assistantId || isTyping) return;
 
-    processResponse(inputValue.trim());
+    // Add user message to UI
+    const userMessage: Message = {
+      id: `user-${Date.now()}`,
+      role: "user",
+      content: inputValue,
+      timestamp: new Date(),
+    };
+
+    setMessages((prev) => [...prev, userMessage]);
     setInputValue("");
+    setError(null);
+
+    try {
+      // Send message to thread
+      setIsTyping(true);
+      const messageAdded = await addMessageToThread(threadId, inputValue);
+
+      if (!messageAdded) {
+        throw new Error("Failed to send message");
+      }
+
+      // Run the assistant to get a response
+      const assistantMessages = await runAssistant(
+        threadId,
+        assistantId,
+        "best-friend"
+      );
+
+      if (assistantMessages && assistantMessages.length > 0) {
+        // Get the latest message
+        const latestMessage = assistantMessages[assistantMessages.length - 1];
+
+        // Add assistant's response to UI
+        const assistantMessage: Message = {
+          id: latestMessage.id,
+          role: "assistant",
+          content: latestMessage.content,
+          timestamp: latestMessage.createdAt,
+        };
+
+        setMessages((prev) => [...prev, assistantMessage]);
+      }
+    } catch (error) {
+      console.error("Failed to send message:", error);
+      setError("There was an error processing your message. Please try again.");
+    } finally {
+      setIsTyping(false);
+    }
   };
 
   // Handle key press (Enter to send)
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
       handleSendMessage();
     }
   };
@@ -533,7 +213,7 @@ Ready to start your journey?`,
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+      const recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
       const chunks: BlobPart[] = [];
 
       recorder.ondataavailable = (e) => {
@@ -545,50 +225,69 @@ Ready to start your journey?`,
       recorder.onstop = async () => {
         const audioBlob = new Blob(chunks, { type: "audio/webm" });
 
-        // Create FormData to send the audio file
-        const formData = new FormData();
-        formData.append("audio", audioBlob);
-
         try {
           setIsTyping(true);
+          setError(null);
 
-          // Send to Whisper API via our own API route
-          const response = await fetch("/api/assistant", {
-            method: "PATCH",
-            body: formData,
-          });
+          // Transcribe audio
+          const transcribedText = await transcribeAudio(audioBlob);
 
-          if (!response.ok) {
-            throw new Error(`API error: ${response.status}`);
+          if (!transcribedText) {
+            throw new Error("Failed to transcribe audio");
           }
 
-          const data = await response.json();
+          // Show transcribed text in input
+          setInputValue(transcribedText);
 
-          if (data.text) {
-            setInputValue(data.text);
-            processResponse(data.text);
-          } else {
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: `error-${Date.now()}`,
-                role: "system",
-                content:
-                  "Sorry, I couldn't understand the audio. Please try again or type your message.",
-              },
-            ]);
+          // If we have the thread and assistant IDs, automatically send the message
+          if (threadId && assistantId) {
+            // Add user message to UI
+            const userMessage: Message = {
+              id: `user-${Date.now()}`,
+              role: "user",
+              content: transcribedText,
+              timestamp: new Date(),
+            };
+
+            setMessages((prev) => [...prev, userMessage]);
+            setInputValue("");
+
+            // Send message to thread
+            const messageAdded = await addMessageToThread(
+              threadId,
+              transcribedText
+            );
+
+            if (!messageAdded) {
+              throw new Error("Failed to send message");
+            }
+
+            // Run the assistant to get a response
+            const assistantMessages = await runAssistant(
+              threadId,
+              assistantId,
+              "best-friend"
+            );
+
+            if (assistantMessages && assistantMessages.length > 0) {
+              // Get the latest message
+              const latestMessage =
+                assistantMessages[assistantMessages.length - 1];
+
+              // Add assistant's response to UI
+              const assistantMessage: Message = {
+                id: latestMessage.id,
+                role: "assistant",
+                content: latestMessage.content,
+                timestamp: latestMessage.createdAt,
+              };
+
+              setMessages((prev) => [...prev, assistantMessage]);
+            }
           }
         } catch (error) {
-          console.error("Transcription error:", error);
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `error-${Date.now()}`,
-              role: "system",
-              content:
-                "Sorry, there was an error processing your voice message. Please try again or type your message.",
-            },
-          ]);
+          console.error("Error processing voice:", error);
+          setError("I couldn't process your voice message. Please try again.");
         } finally {
           setIsTyping(false);
         }
@@ -600,15 +299,9 @@ Ready to start your journey?`,
       setIsRecording(true);
     } catch (error) {
       console.error("Error starting recording:", error);
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `error-${Date.now()}`,
-          role: "system",
-          content:
-            "Sorry, I couldn't access your microphone. Please check your browser permissions or type your message instead.",
-        },
-      ]);
+      setError(
+        "I couldn't access your microphone. Please check your browser permissions."
+      );
     }
   };
 
@@ -616,8 +309,11 @@ Ready to start your journey?`,
     if (mediaRecorder && isRecording) {
       mediaRecorder.stop();
       setIsRecording(false);
+
       // Stop all audio tracks
-      mediaRecorder.stream.getTracks().forEach((track) => track.stop());
+      if (mediaRecorder.stream) {
+        mediaRecorder.stream.getTracks().forEach((track) => track.stop());
+      }
     }
   };
 
@@ -629,15 +325,48 @@ Ready to start your journey?`,
     }
   };
 
-  // Complete onboarding and move to dashboard
+  // Complete onboarding and go to dashboard
   const completeOnboarding = async () => {
+    if (!session?.user?.id || !threadId || !assistantId) return;
+
     try {
-      // Redirect to dashboard
+      // Update user profile with onboarding flags
+      await createOrUpdateUserProfile(session.user.id, {
+        onboardingCompleted: true,
+        threadId: threadId,
+        assistantId: assistantId,
+      });
+
+      // Navigate to dashboard
       router.push("/dashboard");
     } catch (error) {
       console.error("Error completing onboarding:", error);
+      setError("There was a problem saving your profile. Please try again.");
     }
   };
+
+  // Show loading state while initializing
+  if (isInitializing) {
+    return (
+      <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-900">
+        <header className="p-4 border-b dark:border-gray-800 flex justify-center items-center">
+          <div className="text-2xl font-bold">
+            niblet<span className="text-blue-400">.ai</span>
+          </div>
+        </header>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <Skeleton className="h-20 w-3/4" />
+          <Skeleton className="h-16 w-2/3 ml-auto" />
+          <Skeleton className="h-20 w-3/4" />
+        </div>
+
+        <div className="p-4 border-t dark:border-gray-800">
+          <Skeleton className="h-10 w-full" />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-900">
@@ -650,6 +379,13 @@ Ready to start your journey?`,
 
       {/* Chat Container */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {/* Error message */}
+        {error && (
+          <div className="mx-auto bg-red-100 dark:bg-red-900 p-3 rounded-lg text-center">
+            {error}
+          </div>
+        )}
+
         {/* Chat messages */}
         {messages.map((msg) => (
           <div
@@ -687,12 +423,12 @@ Ready to start your journey?`,
 
       {/* Input Area or Complete Button */}
       <div className="p-4 border-t dark:border-gray-800">
-        {stage === "complete" ? (
+        {isComplete ? (
           <Button
             onClick={completeOnboarding}
-            className="w-full bg-blue-500 hover:bg-blue-600"
+            className="w-full bg-blue-500 hover:bg-blue-600 text-white"
           >
-            Start Using Niblet.ai
+            Start Using Niblet <ArrowRight className="ml-2 h-4 w-4" />
           </Button>
         ) : (
           <div className="flex items-center space-x-2">
@@ -719,7 +455,9 @@ Ready to start your journey?`,
             <Button
               size="icon"
               onClick={handleSendMessage}
-              disabled={!inputValue.trim() || isTyping}
+              disabled={
+                !inputValue.trim() || isTyping || !threadId || !assistantId
+              }
             >
               <Send className="h-5 w-5" />
             </Button>

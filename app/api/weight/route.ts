@@ -1,4 +1,5 @@
 // app/api/weight/route.ts
+
 import { createOrUpdateUserProfile } from "@/lib/firebase/models/user";
 import {
   getWeightLogsByUser,
@@ -10,17 +11,27 @@ import { NextRequest, NextResponse } from "next/server";
 // GET weight logs
 export async function GET(request: NextRequest) {
   try {
-    // Get session
+    // Get token and validate user
     const token = await getToken({ req: request });
 
     if (!token?.sub) {
       return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     }
 
+    // Get query parameters
+    const url = new URL(request.url);
+    const limit = url.searchParams.get("limit")
+      ? parseInt(url.searchParams.get("limit") || "0")
+      : undefined;
+
     // Get weight logs
     const weightLogs = await getWeightLogsByUser(token.sub);
 
-    return NextResponse.json(weightLogs);
+    // Apply limit if specified
+    const limitedLogs =
+      limit && limit > 0 ? weightLogs.slice(0, limit) : weightLogs;
+
+    return NextResponse.json(limitedLogs);
   } catch (error) {
     console.error("Error fetching weight logs:", error);
     return NextResponse.json(
@@ -33,7 +44,7 @@ export async function GET(request: NextRequest) {
 // POST weight log
 export async function POST(request: NextRequest) {
   try {
-    // Get session
+    // Get token and validate user
     const token = await getToken({ req: request });
 
     if (!token?.sub) {
@@ -44,9 +55,12 @@ export async function POST(request: NextRequest) {
     const { weight, date } = await request.json();
 
     // Validate weight
-    if (!weight || isNaN(parseFloat(weight.toString()))) {
+    const weightValue =
+      typeof weight === "string" ? parseFloat(weight) : weight;
+
+    if (!weightValue || isNaN(weightValue) || weightValue <= 0) {
       return NextResponse.json(
-        { message: "Valid weight is required" },
+        { message: "Valid weight is required (must be a positive number)" },
         { status: 400 }
       );
     }
@@ -54,13 +68,13 @@ export async function POST(request: NextRequest) {
     // Create weight log
     const weightLog = await logWeight(
       token.sub,
-      parseFloat(weight.toString()),
+      weightValue,
       date ? new Date(date) : undefined
     );
 
     // Update current weight in user profile
     await createOrUpdateUserProfile(token.sub, {
-      currentWeight: parseFloat(weight.toString()),
+      currentWeight: weightValue,
     });
 
     return NextResponse.json(weightLog, { status: 201 });
