@@ -1,8 +1,11 @@
+// components/ConversationalOnboarding.tsx
 "use client";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { updateUserProfile } from "@/lib/auth/authService";
 import { Mic, MicOff, Send } from "lucide-react";
+import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
@@ -29,13 +32,22 @@ const ConversationalOnboarding = () => {
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(
     null
   );
-  const [threadId, setThreadId] = useState(null);
+  const [threadId, setThreadId] = useState<string | null>(null);
 
   const messageEndRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
+  const { data: session } = useSession();
 
   // Initialize chat
   useEffect(() => {
+    // Set name from session if available
+    if (session?.user?.name) {
+      setUserData((prev) => ({
+        ...prev,
+        name: session.user.name || "",
+      }));
+    }
+
     const initializeChat = async () => {
       // Create thread
       try {
@@ -50,11 +62,21 @@ const ConversationalOnboarding = () => {
             {
               id: "welcome",
               role: "assistant",
-              content:
-                "Hi there! 👋 I'm Nibble, your personal nutrition assistant. I'm excited to get to know you so I can help you reach your health goals! First, what's your name?",
+              content: `Hi there${
+                session?.user?.name ? ", " + session.user.name : ""
+              }! 👋 I'm Nibble, your personal nutrition assistant. I'm excited to get to know you so I can help you reach your health goals! ${
+                !session?.user?.name
+                  ? "First, what's your name?"
+                  : "What's your age?"
+              }`,
             },
           ]);
           setIsTyping(false);
+
+          // If we already have the name, skip to personal stage
+          if (session?.user?.name) {
+            setStage("personal");
+          }
         }, 1000);
       } catch (error) {
         console.error("Error initializing chat:", error);
@@ -62,7 +84,7 @@ const ConversationalOnboarding = () => {
     };
 
     initializeChat();
-  }, []);
+  }, [session]);
 
   // Auto scroll to bottom of chat
   useEffect(() => {
@@ -412,8 +434,57 @@ Ready to start your journey?`,
           ]);
           setIsTyping(false);
           setStage("complete");
+
+          // Save the user profile if we have a valid session
+          if (session?.user?.id) {
+            saveUserProfile(targetCalories, tdee, bmi);
+          }
         }, 1500);
       }
+    }
+  };
+
+  // Save user profile to database
+  const saveUserProfile = async (
+    targetCalories: number,
+    tdee: number,
+    bmi: number
+  ) => {
+    if (!session?.user?.id) {
+      console.error("No user ID found in session");
+      return;
+    }
+
+    try {
+      const targetProtein = Math.round(
+        (userData.goalType.toLowerCase().includes("gain") ? 1.8 : 1.2) *
+          (userData.currentWeight || 0) *
+          0.453592
+      );
+      const targetFat = Math.round((targetCalories * 0.25) / 9); // 25% of calories from fat
+      const targetCarbs = Math.round(
+        (targetCalories - targetProtein * 4 - targetFat * 9) / 4
+      );
+
+      await updateUserProfile(session.user.id, {
+        age: userData.age || undefined,
+        gender: userData.gender,
+        currentWeight: userData.currentWeight || undefined,
+        targetWeight: userData.targetWeight || undefined,
+        height: userData.height || undefined,
+        activityLevel: userData.activityLevel,
+        dietaryPreferences: userData.dietaryPreferences,
+        allergies: userData.allergies,
+        goalType: userData.goalType,
+        targetCalories: targetCalories,
+        targetProtein: targetProtein,
+        targetCarbs: targetCarbs,
+        targetFat: targetFat,
+        threadId: threadId || undefined,
+        onboardingCompleted: true,
+      });
+    } catch (error) {
+      console.error("Error saving user profile:", error);
     }
   };
 
@@ -529,11 +600,7 @@ Ready to start your journey?`,
   };
 
   // Complete onboarding and move to dashboard
-  const completeOnboarding = () => {
-    // In a real app, you'd save the user data to your database here
-    console.log("User data to save:", userData);
-
-    // Redirect to dashboard
+  const completeOnboarding = async () => {
     router.push("/dashboard");
   };
 

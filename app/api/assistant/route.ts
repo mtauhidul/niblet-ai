@@ -1,5 +1,6 @@
-// src/app/api/assistant/route.js
-import { NextResponse } from "next/server";
+// app/api/assistant/route.ts
+import { getServerSession } from "next-auth";
+import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 
 // Initialize OpenAI client
@@ -161,10 +162,24 @@ async function getOrCreateAssistant(
 }
 
 // Create a thread
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  // Verify user is authenticated
+  const session = await getServerSession();
+  if (!session?.user?.id) {
+    return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  }
+
   try {
+    // Get or create assistant with default personality
+    const assistantId = await getOrCreateAssistant("best-friend");
+
+    // Create thread
     const thread = await openai.beta.threads.create();
-    return NextResponse.json({ threadId: thread.id });
+
+    return NextResponse.json({
+      threadId: thread.id,
+      assistantId: assistantId,
+    });
   } catch (error) {
     console.error("Error creating thread:", error);
     return NextResponse.json(
@@ -175,7 +190,13 @@ export async function POST(request: Request) {
 }
 
 // Send message and get response
-export async function PUT(request: Request) {
+export async function PUT(request: NextRequest) {
+  // Verify user is authenticated
+  const session = await getServerSession();
+  if (!session?.user?.id) {
+    return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const {
       threadId,
@@ -236,44 +257,159 @@ export async function PUT(request: Request) {
 
           if (functionName === "log_meal") {
             // In a real app, you would store this in a database
-            output = {
-              success: true,
-              meal_id: `meal_${Date.now()}`,
-              message: `Successfully logged ${functionArgs.meal_name} with ${functionArgs.calories} calories.`,
-            };
+            try {
+              // Save the meal to the database
+              const response = await fetch(
+                `${process.env.NEXTAUTH_URL}/api/meals`,
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Cookie: request.headers.get("cookie") || "", // Pass session cookie
+                  },
+                  body: JSON.stringify({
+                    name: functionArgs.meal_name,
+                    mealType: functionArgs.meal_type,
+                    calories: functionArgs.calories,
+                    protein: functionArgs.protein,
+                    carbs: functionArgs.carbs,
+                    fat: functionArgs.fat,
+                    items: functionArgs.items || [],
+                    date: new Date(),
+                  }),
+                }
+              );
+
+              const mealData = await response.json();
+
+              output = {
+                success: true,
+                meal_id: mealData.id,
+                message: `Successfully logged ${functionArgs.meal_name} with ${functionArgs.calories} calories.`,
+              };
+            } catch (error) {
+              console.error("Error logging meal:", error);
+              output = {
+                success: false,
+                message: "Failed to log meal. Please try again.",
+              };
+            }
           } else if (functionName === "log_weight") {
             // In a real app, you would store this in a database
-            output = {
-              success: true,
-              message: `Successfully logged weight of ${functionArgs.weight} lbs.`,
-            };
+            try {
+              // Create a weight log
+              const response = await fetch(
+                `${process.env.NEXTAUTH_URL}/api/weight`,
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Cookie: request.headers.get("cookie") || "", // Pass session cookie
+                  },
+                  body: JSON.stringify({
+                    weight: functionArgs.weight,
+                    date:
+                      functionArgs.date ||
+                      new Date().toISOString().split("T")[0],
+                  }),
+                }
+              );
+
+              const weightData = await response.json();
+
+              output = {
+                success: true,
+                message: `Successfully logged weight of ${functionArgs.weight} lbs.`,
+              };
+            } catch (error) {
+              console.error("Error logging weight:", error);
+              output = {
+                success: false,
+                message: "Failed to log weight. Please try again.",
+              };
+            }
           } else if (functionName === "get_meal_suggestions") {
-            // In a real app, you might fetch from a recipe database
-            output = {
-              suggestions: [
+            // Get user profile to check dietary preferences
+            try {
+              const response = await fetch(
+                `${process.env.NEXTAUTH_URL}/api/user/profile`,
                 {
-                  name: "Grilled Chicken Salad",
-                  calories: 350,
-                  protein: 30,
-                  carbs: 15,
-                  fat: 20,
-                },
-                {
-                  name: "Quinoa Bowl with Roasted Vegetables",
-                  calories: 450,
-                  protein: 15,
-                  carbs: 65,
-                  fat: 15,
-                },
-                {
-                  name: "Greek Yogurt with Berries and Honey",
-                  calories: 200,
-                  protein: 15,
-                  carbs: 25,
-                  fat: 5,
-                },
-              ],
-            };
+                  headers: {
+                    Cookie: request.headers.get("cookie") || "", // Pass session cookie
+                  },
+                }
+              );
+
+              const userProfile = await response.json();
+              const dietaryPreferences = userProfile.dietaryPreferences || [];
+              const allergies = userProfile.allergies || [];
+
+              // In a real app, you might fetch from a recipe database
+              output = {
+                suggestions: [
+                  {
+                    name: "Grilled Chicken Salad",
+                    calories: 350,
+                    protein: 30,
+                    carbs: 15,
+                    fat: 20,
+                    suitable:
+                      !dietaryPreferences.includes("vegetarian") &&
+                      !dietaryPreferences.includes("vegan"),
+                  },
+                  {
+                    name: "Quinoa Bowl with Roasted Vegetables",
+                    calories: 450,
+                    protein: 15,
+                    carbs: 65,
+                    fat: 15,
+                    suitable: true, // Suitable for most dietary preferences
+                  },
+                  {
+                    name: "Greek Yogurt with Berries and Honey",
+                    calories: 200,
+                    protein: 15,
+                    carbs: 25,
+                    fat: 5,
+                    suitable: !dietaryPreferences.includes("vegan"),
+                  },
+                ].filter(
+                  (suggestion) =>
+                    suggestion.calories <= functionArgs.max_calories &&
+                    suggestion.suitable
+                ),
+              };
+            } catch (error) {
+              console.error("Error getting meal suggestions:", error);
+              output = {
+                suggestions: [
+                  {
+                    name: "Grilled Chicken Salad",
+                    calories: 350,
+                    protein: 30,
+                    carbs: 15,
+                    fat: 20,
+                  },
+                  {
+                    name: "Quinoa Bowl with Roasted Vegetables",
+                    calories: 450,
+                    protein: 15,
+                    carbs: 65,
+                    fat: 15,
+                  },
+                  {
+                    name: "Greek Yogurt with Berries and Honey",
+                    calories: 200,
+                    protein: 15,
+                    carbs: 25,
+                    fat: 5,
+                  },
+                ].filter(
+                  (suggestion) =>
+                    suggestion.calories <= functionArgs.max_calories
+                ),
+              };
+            }
           }
 
           toolOutputs.push({
@@ -297,7 +433,8 @@ export async function PUT(request: Request) {
       .filter((msg) => msg.role === "assistant")
       .map((msg) => ({
         id: msg.id,
-        content: msg.content[0].type === "text" ? msg.content[0].text : "",
+        content:
+          msg.content[0].type === "text" ? msg.content[0].text.value : "",
         createdAt: new Date(msg.created_at * 1000),
       }))
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()); // Sort by most recent
@@ -317,9 +454,13 @@ export async function PUT(request: Request) {
 }
 
 // Transcribe audio
-import { NextRequest } from "next/server";
-
 export async function PATCH(request: NextRequest) {
+  // Verify user is authenticated
+  const session = await getServerSession();
+  if (!session?.user?.id) {
+    return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const formData = await request.formData();
     const audioFile = formData.get("audio");

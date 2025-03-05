@@ -1,16 +1,26 @@
-// src/app/page.js
+// app/page.tsx
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export default function Home() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const router = useRouter();
+  const { data: session, status } = useSession();
 
-  if (loading) {
+  useEffect(() => {
+    // If authenticated, redirect to dashboard
+    if (status === "authenticated") {
+      router.push("/dashboard");
+    } else if (status !== "loading") {
+      setLoading(false);
+    }
+  }, [status, router]);
+
+  if (status === "loading" || loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900">
         <div className="text-center">
@@ -32,7 +42,20 @@ export default function Home() {
           <div className="text-3xl font-bold">
             niblet<span className="text-blue-400">.ai</span>
           </div>
-          <Button className="bg-blue-500 hover:bg-blue-600">Get Started</Button>
+          <div className="flex space-x-4">
+            <Button
+              variant="outline"
+              onClick={() => router.push("/auth/signin")}
+            >
+              Sign In
+            </Button>
+            <Button
+              className="bg-blue-500 hover:bg-blue-600"
+              onClick={() => router.push("/auth/signup")}
+            >
+              Get Started
+            </Button>
+          </div>
         </div>
       </header>
 
@@ -47,7 +70,11 @@ export default function Home() {
               Chat with Nibble to log meals, track calories, and reach your
               nutrition goals - no manual entry required.
             </p>
-            <Button size="lg" className="bg-blue-500 hover:bg-blue-600">
+            <Button
+              size="lg"
+              className="bg-blue-500 hover:bg-blue-600"
+              onClick={() => router.push("/auth/signup")}
+            >
               Start Tracking
             </Button>
 
@@ -282,7 +309,11 @@ export default function Home() {
               Join thousands of users who have made meal tracking effortless
               with Niblet.ai
             </p>
-            <Button size="lg" className="bg-blue-500 hover:bg-blue-600">
+            <Button
+              size="lg"
+              className="bg-blue-500 hover:bg-blue-600"
+              onClick={() => router.push("/auth/signup")}
+            >
               Start For Free
             </Button>
           </div>

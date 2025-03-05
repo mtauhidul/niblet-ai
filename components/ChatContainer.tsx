@@ -1,18 +1,15 @@
-/* eslint-disable react-hooks/exhaustive-deps */
+// components/ChatContainer.tsx
 "use client";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Camera, MicOff, Phone, Send } from "lucide-react";
+import { updateUserProfile } from "@/lib/auth/authService";
+import { cn } from "@/lib/utils";
+import { Camera, Mic, MicOff, Send } from "lucide-react";
+import { useSession } from "next-auth/react";
 import { useEffect, useRef, useState } from "react";
 
-// Utility function to replace the missing cn utility
-const cn = (...classes: string[]) => {
-  return classes.filter(Boolean).join(" ");
-};
-
-// Mock store to simulate the Zustand store functionality
 interface Message {
   id: string;
   role: "user" | "assistant" | "system";
@@ -20,118 +17,33 @@ interface Message {
   timestamp: Date;
 }
 
-const useMockStore = () => {
-  const [state, setState] = useState<{
-    threadId: string;
-    assistantId: string;
-    messages: Message[];
-    isTyping: boolean;
-    aiPersonality: string;
-  }>({
-    threadId: "mock-thread-123",
-    assistantId: "mock-assistant-456",
-    messages: [],
-    isTyping: false,
-    aiPersonality: "best-friend",
-  });
-
-  const addMessage = (message: Message) => {
-    setState((prev) => ({
-      ...prev,
-      messages: [...prev.messages, message],
-    }));
-  };
-
-  const setThreadId = (id: string) => {
-    setState((prev) => ({ ...prev, threadId: id }));
-  };
-
-  const setAssistantId = (id: string) => {
-    setState((prev) => ({ ...prev, assistantId: id }));
-  };
-
-  const setIsTyping = (value: boolean) => {
-    setState((prev) => ({ ...prev, isTyping: value }));
-  };
-
-  return {
-    ...state,
-    addMessage,
-    setThreadId,
-    setAssistantId,
-    setIsTyping,
-  };
-};
-
-// Mock AI service functions
-const mockAiService = {
-  getOrCreateAssistant: async (personality: string) => {
-    console.log("Creating assistant with personality:", personality);
-    return "mock-assistant-id";
-  },
-  createThread: async () => {
-    return "mock-thread-id";
-  },
-  addMessageToThread: async (threadId: string, message: string) => {
-    console.log(`Adding message to thread ${threadId}:`, message);
-    return true;
-  },
-  runAssistant: async (
-    threadId: string,
-    assistantId: string,
-    personality: string
-  ) => {
-    console.log(
-      `Running assistant ${assistantId} with personality ${personality}`
-    );
-    // Simulate different responses based on personality
-    let response = "I'm Nibble, your meal tracking assistant!";
-
-    if (personality === "professional-coach") {
-      response =
-        "Hello, I'm your professional nutrition coach. Let's track your nutrition data precisely.";
-    } else if (personality === "tough-love") {
-      response = "Let's get serious about your nutrition. No excuses today.";
-    }
-
-    return [
-      {
-        id: `assistant-${Date.now()}`,
-        content: response,
-      },
-    ];
-  },
-  transcribeAudio: async (blob: Blob) => {
-    return "This is a simulated transcription of your audio message.";
-  },
-};
-
 interface ChatContainerProps {
-  aiPersonality: string;
+  aiPersonality?: string;
+  threadId?: string;
+  assistantId?: string;
 }
 
 const ChatContainer: React.FC<ChatContainerProps> = ({
-  aiPersonality: propAiPersonality,
+  aiPersonality = "best-friend",
+  threadId: initialThreadId,
+  assistantId: initialAssistantId,
 }) => {
-  // Use the mock store instead of the real Zustand store
-  const {
-    threadId,
-    assistantId,
-    messages,
-    isTyping,
-    aiPersonality,
-    addMessage,
-    setThreadId,
-    setAssistantId,
-    setIsTyping,
-  } = useMockStore();
-
+  const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
+  const [isTyping, setIsTyping] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(
     null
   );
+  const [threadId, setThreadId] = useState<string | null>(
+    initialThreadId || null
+  );
+  const [assistantId, setAssistantId] = useState<string | null>(
+    initialAssistantId || null
+  );
+
   const messageEndRef = useRef<HTMLDivElement | null>(null);
+  const { data: session } = useSession();
 
   // Predefined prompts
   const predefinedPrompts = [
@@ -147,36 +59,53 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   useEffect(() => {
     const initializeChat = async () => {
       try {
-        // Get or create assistant
-        const assistantId = await mockAiService.getOrCreateAssistant(
-          propAiPersonality
-        );
-        setAssistantId(assistantId);
-
         // Create a new thread if one doesn't exist
         if (!threadId) {
-          const newThreadId = await mockAiService.createThread();
-          setThreadId(newThreadId);
-
-          // Send welcome message to thread
-          await mockAiService.addMessageToThread(newThreadId, "Hello");
-
-          // Run the assistant to get initial response
           setIsTyping(true);
-          const responses = await mockAiService.runAssistant(
-            newThreadId,
-            assistantId,
-            aiPersonality
-          );
+          const response = await fetch("/api/assistant", { method: "POST" });
+          const data = await response.json();
+          setThreadId(data.threadId);
+          setAssistantId(data.assistantId);
 
-          // Add assistant's response to messages
-          if (responses.length > 0) {
-            addMessage({
-              id: responses[0].id,
-              role: "assistant",
-              content: responses[0].content,
-              timestamp: new Date(),
+          // Save thread ID to user profile if authenticated
+          if (session?.user?.id) {
+            await updateUserProfile(session.user.id, {
+              threadId: data.threadId,
+              assistantId: data.assistantId,
             });
+          }
+
+          // Send welcome message
+          await fetch("/api/assistant", {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              threadId: data.threadId,
+              message: "Hello",
+              personality: aiPersonality,
+            }),
+          });
+
+          // Load welcome message
+          const messagesResponse = await fetch(
+            `/api/assistant/messages?threadId=${data.threadId}`
+          );
+          if (messagesResponse.ok) {
+            const initialMessages = await messagesResponse.json();
+            setMessages(initialMessages);
+          }
+          setIsTyping(false);
+        } else {
+          // Load existing messages
+          setIsTyping(true);
+          const messagesResponse = await fetch(
+            `/api/assistant/messages?threadId=${threadId}`
+          );
+          if (messagesResponse.ok) {
+            const initialMessages = await messagesResponse.json();
+            setMessages(initialMessages);
           }
           setIsTyping(false);
         }
@@ -187,7 +116,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
     };
 
     initializeChat();
-  }, [aiPersonality]);
+  }, [threadId, aiPersonality, session?.user?.id]);
 
   // Auto scroll to bottom of chat
   useEffect(() => {
@@ -196,7 +125,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
 
   // Send message to assistant
   const handleSendMessage = async () => {
-    if (!inputValue.trim() || !threadId || !assistantId) return;
+    if (!inputValue.trim() || !threadId || isTyping) return;
 
     // Add user message to UI
     const userMessage: Message = {
@@ -205,42 +134,51 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
       content: inputValue,
       timestamp: new Date(),
     };
-    addMessage(userMessage);
+    setMessages((prev) => [...prev, userMessage]);
 
     // Clear input
     setInputValue("");
 
     try {
       // Send message to OpenAI thread
-      await mockAiService.addMessageToThread(threadId, inputValue);
-
-      // Run the assistant
       setIsTyping(true);
-      const responses = await mockAiService.runAssistant(
-        threadId,
-        assistantId,
-        aiPersonality
-      );
+      const response = await fetch("/api/assistant", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          threadId,
+          message: inputValue,
+          personality: aiPersonality,
+        }),
+      });
+
+      const data = await response.json();
 
       // Add assistant's response to messages
-      if (responses.length > 0) {
-        addMessage({
-          id: responses[0].id,
+      if (data.response) {
+        const assistantMessage: Message = {
+          id: data.response.id,
           role: "assistant",
-          content: responses[0].content,
-          timestamp: new Date(),
-        });
+          content: data.response.content,
+          timestamp: new Date(data.response.createdAt),
+        };
+        setMessages((prev) => [...prev, assistantMessage]);
       }
     } catch (error) {
       console.error("Failed to send message:", error);
 
       // Add error message
-      addMessage({
-        id: `error-${Date.now()}`,
-        role: "system",
-        content: "Sorry, I'm having trouble connecting. Please try again.",
-        timestamp: new Date(),
-      });
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `error-${Date.now()}`,
+          role: "system",
+          content: "Sorry, I'm having trouble connecting. Please try again.",
+          timestamp: new Date(),
+        },
+      ]);
     } finally {
       setIsTyping(false);
     }
@@ -273,53 +211,85 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
 
       recorder.onstop = async () => {
         const audioBlob = new Blob(chunks, { type: "audio/webm" });
+
+        // Create FormData to send the audio file
+        const formData = new FormData();
+        formData.append("audio", audioBlob);
+
         try {
           setIsTyping(true);
-          const transcript = await mockAiService.transcribeAudio(audioBlob);
-          setInputValue(transcript);
 
-          // Auto-send the transcribed message
-          if (transcript) {
-            // Add user message to UI
+          // Send to Whisper API via our own API route
+          const response = await fetch("/api/assistant", {
+            method: "PATCH",
+            body: formData,
+          });
+
+          const data = await response.json();
+
+          if (data.text) {
+            setInputValue(data.text);
+            // Auto-send the transcribed message
             const userMessage: Message = {
               id: `user-${Date.now()}`,
               role: "user",
-              content: transcript,
+              content: data.text,
               timestamp: new Date(),
             };
-            addMessage(userMessage);
+            setMessages((prev) => [...prev, userMessage]);
 
-            // Send message to OpenAI thread
-            await mockAiService.addMessageToThread(threadId, transcript);
+            // Send to API
+            const assistantResponse = await fetch("/api/assistant", {
+              method: "PUT",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                threadId,
+                message: data.text,
+                personality: aiPersonality,
+              }),
+            });
 
-            // Run the assistant
-            const responses = await mockAiService.runAssistant(
-              threadId,
-              assistantId,
-              aiPersonality
-            );
+            const assistantData = await assistantResponse.json();
 
             // Add assistant's response to messages
-            if (responses.length > 0) {
-              addMessage({
-                id: responses[0].id,
+            if (assistantData.response) {
+              const assistantMessage: Message = {
+                id: assistantData.response.id,
                 role: "assistant",
-                content: responses[0].content,
-                timestamp: new Date(),
-              });
+                content: assistantData.response.content,
+                timestamp: new Date(assistantData.response.createdAt),
+              };
+              setMessages((prev) => [...prev, assistantMessage]);
             }
+          } else {
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `error-${Date.now()}`,
+                role: "system",
+                content:
+                  "Sorry, I couldn't understand the audio. Please try again.",
+                timestamp: new Date(),
+              },
+            ]);
           }
         } catch (error) {
           console.error("Transcription error:", error);
-          addMessage({
-            id: `error-${Date.now()}`,
-            role: "system",
-            content:
-              "Sorry, I couldn't understand the audio. Please try again.",
-            timestamp: new Date(),
-          });
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `error-${Date.now()}`,
+              role: "system",
+              content:
+                "Sorry, there was an error processing your voice message. Please try again or type your message.",
+              timestamp: new Date(),
+            },
+          ]);
         } finally {
           setIsTyping(false);
+          setInputValue(""); // Clear input field after sending
         }
       };
 
@@ -329,6 +299,16 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
       setIsRecording(true);
     } catch (error) {
       console.error("Error starting recording:", error);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `error-${Date.now()}`,
+          role: "system",
+          content:
+            "Sorry, I couldn't access your microphone. Please check your browser permissions or type your message instead.",
+          timestamp: new Date(),
+        },
+      ]);
     }
   };
 
@@ -357,7 +337,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
         {messages.length === 0 && !isTyping && (
           <Card className="p-4">
             <p>
-              what would you like to do? Log a meal. Ask me to estimate calories
+              What would you like to do? Log a meal. Ask me to estimate calories
               for a dish. Get a recipe recommendation.
             </p>
           </Card>
@@ -434,7 +414,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
             {isRecording ? (
               <MicOff className="h-5 w-5" />
             ) : (
-              <Phone className="h-5 w-5" />
+              <Mic className="h-5 w-5" />
             )}
           </Button>
           <Button
