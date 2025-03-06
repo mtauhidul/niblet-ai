@@ -10,10 +10,13 @@ import { useEffect, useRef, useState } from "react";
 import ChartsScreen from "./ChartsScreen";
 import Dashboard from "./Dashboard";
 
+type PersonalityKey = "best-friend" | "professional-coach" | "tough-love";
+
 const App = () => {
   const [currentScreen, setCurrentScreen] = useState("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [aiPersonality, setAiPersonality] = useState("best-friend");
+  const [aiPersonality, setAiPersonality] =
+    useState<PersonalityKey>("best-friend");
   const touchStartX = useRef<number | null>(null);
   const touchEndX = useRef<number | null>(null);
 
@@ -88,7 +91,7 @@ const App = () => {
   }, [currentScreen]);
 
   // Change AI personality
-  const handlePersonalityChange = (personality: string) => {
+  const handlePersonalityChange = (personality: PersonalityKey) => {
     setAiPersonality(personality);
     setSidebarOpen(false);
   };
