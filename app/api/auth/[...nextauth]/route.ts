@@ -1,8 +1,6 @@
 // app/api/auth/[...nextauth]/route.ts
 
-import { signInWithEmail } from "@/lib/auth/authService";
 import NextAuth from "next-auth";
-import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
 
 const handler = NextAuth({
@@ -10,44 +8,11 @@ const handler = NextAuth({
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID as string,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET as string,
-      // Make sure this matches exactly what is configured in Google Cloud Console
+      // Remove custom parameters that might be causing issues
       authorization: {
         params: {
-          prompt: "consent",
-          access_type: "offline",
-          response_type: "code",
+          prompt: "select_account",
         },
-      },
-    }),
-    CredentialsProvider({
-      name: "Credentials",
-      credentials: {
-        email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" },
-      },
-      async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) {
-          return null;
-        }
-
-        try {
-          // Use Firebase auth to sign in
-          const user = await signInWithEmail(
-            credentials.email,
-            credentials.password
-          );
-
-          // Return user object for NextAuth session
-          return {
-            id: user.uid,
-            email: user.email,
-            name: user.displayName,
-            image: user.photoURL,
-          };
-        } catch (error) {
-          console.error("Error during credentials auth:", error);
-          return null;
-        }
       },
     }),
   ],
@@ -61,7 +26,6 @@ const handler = NextAuth({
       // Initial sign in
       if (account && user) {
         token.id = user.id;
-        // Include provider info for potential debugging
         token.provider = account.provider;
       }
       return token;
@@ -73,27 +37,16 @@ const handler = NextAuth({
       return session;
     },
     async redirect({ url, baseUrl }) {
-      // For debugging
-      console.log("NextAuth Redirect:", { url, baseUrl });
-
-      // Handle relative URLs
+      // Simplified redirect logic
       if (url.startsWith("/")) {
         return `${baseUrl}${url}`;
-      }
-      // Handle absolute URLs for the same domain
-      else if (new URL(url).origin === baseUrl) {
+      } else if (url.startsWith(baseUrl)) {
         return url;
       }
       return baseUrl;
     },
   },
-  // Increase JWT session length for better user experience
-  session: {
-    strategy: "jwt",
-    maxAge: 30 * 24 * 60 * 60, // 30 days
-  },
   debug: process.env.NODE_ENV === "development",
-  // Update this to match exactly what is in your env variables
   secret: process.env.NEXTAUTH_SECRET,
 });
 

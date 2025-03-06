@@ -2,7 +2,6 @@
 import { auth } from "@/lib/firebase/clientApp";
 import {
   browserLocalPersistence,
-  User as FirebaseUser,
   GoogleAuthProvider,
   setPersistence,
   signInWithPopup,
@@ -11,31 +10,43 @@ import {
   signIn as nextAuthSignIn,
   signOut as nextAuthSignOut,
 } from "next-auth/react";
-import { createOrUpdateUser, getUserProfile } from "../firebase/models/user";
+import { createOrUpdateUser } from "../firebase/models/user";
 
 /**
- * Improved Google sign-in function that handles both Firebase and NextAuth
+ * Google sign-in function that handles both Firebase and NextAuth
+ * with proper redirects
  */
 export const signInWithGoogle = async (
   callbackUrl = "/dashboard"
 ): Promise<{ success: boolean; error?: string }> => {
   try {
-    // Use NextAuth's built-in Google provider
-    const result = await nextAuthSignIn("google", {
-      callbackUrl,
-      redirect: false,
+    // First sign in with Firebase to create/authenticate the user
+    await setPersistence(auth, browserLocalPersistence);
+
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: "select_account" });
+
+    const result = await signInWithPopup(auth, provider);
+    const user = result.user;
+
+    // Store user in Firestore
+    await createOrUpdateUser({
+      id: user.uid,
+      name: user.displayName || undefined,
+      email: user.email || undefined,
+      image: user.photoURL || undefined,
     });
 
-    // Check if NextAuth sign-in was successful
-    if (result?.error) {
-      console.error("NextAuth Google sign-in error:", result.error);
-      return {
-        success: false,
-        error: result.error || "Failed to sign in with Google",
-      };
+    // Then sign in with NextAuth to establish session
+    const nextAuthResult = await nextAuthSignIn("google", {
+      redirect: false, // Don't redirect immediately
+    });
+
+    if (nextAuthResult?.error) {
+      throw new Error(nextAuthResult.error);
     }
 
-    // If successful, manually redirect - this helps avoid redirect_uri mismatch errors
+    // Manually redirect to callback URL
     window.location.href = callbackUrl;
     return { success: true };
   } catch (error: any) {
@@ -44,32 +55,6 @@ export const signInWithGoogle = async (
       success: false,
       error: error.message || "Failed to sign in with Google",
     };
-  }
-};
-
-/**
- * Original Firebase-specific Google sign-in as backup
- */
-export const signInWithGoogleFirebase = async () => {
-  try {
-    // Set persistence to LOCAL to keep user logged in
-    await setPersistence(auth, browserLocalPersistence);
-
-    const provider = new GoogleAuthProvider();
-    provider.setCustomParameters({
-      prompt: "select_account",
-    });
-
-    const result = await signInWithPopup(auth, provider);
-    const user = result.user;
-
-    // Store user in Firestore
-    await saveUserToFirestore(user);
-
-    return user;
-  } catch (error: any) {
-    console.error("Firebase Google sign in error:", error);
-    throw error;
   }
 };
 
@@ -88,39 +73,5 @@ export const signOutFromAll = async (): Promise<boolean> => {
   } catch (error) {
     console.error("Sign out error:", error);
     return false;
-  }
-};
-
-/**
- * Saves Firebase user to Firestore
- */
-const saveUserToFirestore = async (user: FirebaseUser): Promise<void> => {
-  try {
-    await createOrUpdateUser({
-      id: user.uid,
-      name: user.displayName || undefined,
-      email: user.email || undefined,
-      image: user.photoURL || undefined,
-    });
-  } catch (error) {
-    console.error("Error saving user to Firestore:", error);
-    throw error;
-  }
-};
-
-/**
- * Determine if user needs onboarding
- * This can be called after authentication to check if user should be redirected to onboarding
- */
-export const checkNeedsOnboarding = async (
-  userId: string
-): Promise<boolean> => {
-  try {
-    const userProfile = await getUserProfile(userId);
-    return !userProfile || !userProfile.onboardingCompleted;
-  } catch (error) {
-    console.error("Error checking onboarding status:", error);
-    // Default to needing onboarding if there's an error
-    return true;
   }
 };

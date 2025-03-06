@@ -14,18 +14,23 @@ import {
   Timestamp,
   where,
 } from "firebase/firestore";
-import { LogOut, Plus, RefreshCw, User } from "lucide-react";
-import { signOut, useSession } from "next-auth/react";
+import { Phone, Plus, RefreshCw } from "lucide-react";
+import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import AddMealModal from "./AddMealModal";
 import CaloriesStatusBar from "./CaloriesStatusBar";
 import ChatContainer from "./ChatContainer";
+import HamburgerMenu from "./HamburgerMenu";
 import TodaysMeals from "./TodaysMeals";
 import { Button } from "./ui/button";
 import { Skeleton } from "./ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
+
+interface DashboardProps {
+  aiPersonality?: PersonalityKey;
+}
 
 interface UserProfile {
   userId: string;
@@ -35,10 +40,6 @@ interface UserProfile {
   assistantId?: string;
   currentWeight?: number;
   targetWeight?: number;
-}
-
-interface DashboardProps {
-  aiPersonality?: PersonalityKey;
 }
 
 const Dashboard = ({
@@ -58,6 +59,7 @@ const Dashboard = ({
   const [mounted, setMounted] = useState(false);
   const [loadingError, setLoadingError] = useState<string | null>(null);
   const [showAddMealModal, setShowAddMealModal] = useState(false);
+  const [isCalling, setIsCalling] = useState(false);
 
   // Toast state tracking to prevent duplicates
   const [toastShown, setToastShown] = useState(false);
@@ -131,8 +133,6 @@ const Dashboard = ({
           setCaloriesRemaining(targetCalories - totalCalories);
           setIsLoading(false);
           setIsRefreshing(false);
-
-          // IMPORTANT: Don't add toast.success here - this prevents duplicate notifications
         },
         (error) => {
           console.error("Error in meals listener:", error);
@@ -322,22 +322,6 @@ const Dashboard = ({
 
     setIsRefreshing(true);
 
-    // // Prevent duplicate toasts by using a debounce mechanism
-    // if (!toastShown) {
-    //   toast.info("Refreshing meal data...");
-    //   setToastShown(true);
-
-    //   // Clear any existing timeout
-    //   if (toastTimeoutRef.current) {
-    //     clearTimeout(toastTimeoutRef.current);
-    //   }
-
-    //   // Create new timeout to prevent toasts for 3 seconds
-    //   toastTimeoutRef.current = setTimeout(() => {
-    //     setToastShown(false);
-    //   }, 3000);
-    // }
-
     // Fetch data
     fetchTodaysMeals()
       .then(() => {
@@ -394,14 +378,22 @@ const Dashboard = ({
     }
   }, [session?.user?.id, toastShown]);
 
-  const handleSignOut = async () => {
-    try {
-      await signOut({ callbackUrl: "/" });
-    } catch (error) {
-      console.error("Error signing out:", error);
-      // Force redirect to homepage on error
-      window.location.href = "/";
-    }
+  // Handle phone call assistant
+  const handlePhoneCall = () => {
+    setIsCalling(true);
+    toast.info("Connecting to assistant...");
+
+    // Simulate call connection delay
+    setTimeout(() => {
+      toast.success("Connected to Niblet assistant");
+      // In a real implementation, this would connect to a voice call service
+      // For now we'll just simulate with a timeout and then set back to normal
+
+      setTimeout(() => {
+        setIsCalling(false);
+        toast.info("Call ended");
+      }, 10000);
+    }, 2000);
   };
 
   // Handle meal added from modal
@@ -423,6 +415,11 @@ const Dashboard = ({
     }
   };
 
+  // Handle personality change from hamburger menu
+  const handlePersonalityChange = (newPersonality: PersonalityKey) => {
+    setAiPersonality(newPersonality);
+  };
+
   // Handle hydration properly - don't render until mounted
   if (!mounted) {
     return null;
@@ -431,7 +428,7 @@ const Dashboard = ({
   if (status === "loading" || isLoading) {
     return (
       <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-900 p-4">
-        <header className="py-4 border-b dark:border-gray-800 flex justify-between items-center">
+        <header className="py-3 border-b dark:border-gray-800 flex justify-between items-center">
           <div className="w-6"></div>
           <div className="text-2xl font-bold">
             niblet<span className="text-blue-400">.ai</span>
@@ -440,7 +437,7 @@ const Dashboard = ({
         </header>
 
         <div className="p-4">
-          <Skeleton className="h-24 w-full mb-6" />
+          <Skeleton className="h-16 w-full mb-6" />
           <Skeleton className="h-96 w-full" />
         </div>
       </div>
@@ -449,9 +446,12 @@ const Dashboard = ({
 
   return (
     <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-900">
-      {/* Header */}
-      <header className="p-4 border-b dark:border-gray-800 flex justify-between items-center">
-        <div></div>
+      {/* Header - Made thinner as requested */}
+      <header className="py-3 px-4 border-b dark:border-gray-800 flex justify-between items-center">
+        <HamburgerMenu
+          currentPersonality={aiPersonality}
+          onPersonalityChange={handlePersonalityChange}
+        />
         <div className="text-2xl font-bold">
           niblet<span className="text-blue-400">.ai</span>
         </div>
@@ -459,12 +459,11 @@ const Dashboard = ({
           <Button
             size="icon"
             variant="ghost"
-            onClick={() => router.push("/profile")}
+            className={`${isCalling ? "text-green-500 animate-pulse" : ""}`}
+            onClick={handlePhoneCall}
+            disabled={isCalling}
           >
-            <User className="h-5 w-5" />
-          </Button>
-          <Button size="icon" variant="ghost" onClick={handleSignOut}>
-            <LogOut className="h-5 w-5" />
+            <Phone className="h-5 w-5" />
           </Button>
         </div>
       </header>
@@ -488,11 +487,11 @@ const Dashboard = ({
         </div>
       )}
 
-      {/* Calories Status Bar */}
+      {/* Calories Status Bar - Made thinner as requested */}
       <CaloriesStatusBar
         caloriesConsumed={caloriesConsumed}
         targetCalories={targetCalories}
-        className="mx-4 my-4"
+        className="mx-4 my-3"
       />
 
       {/* Tab Navigation */}

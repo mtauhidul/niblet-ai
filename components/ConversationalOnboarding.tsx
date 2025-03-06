@@ -1,7 +1,7 @@
+// components/OnboardingChat.tsx (continued)
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   addMessageToThread,
   createThread,
@@ -14,6 +14,8 @@ import { ArrowRight, Mic, MicOff, Send } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { Input } from "./ui/input";
+import { Progress } from "./ui/progress";
 import { Skeleton } from "./ui/skeleton";
 
 interface Message {
@@ -23,11 +25,23 @@ interface Message {
   timestamp: Date;
 }
 
+interface ExtractedUserData {
+  age?: number;
+  gender?: string;
+  currentWeight?: number;
+  targetWeight?: number;
+  height?: number;
+  activityLevel?: string;
+  dietaryPreferences?: string[];
+  allergies?: string[];
+  goalType?: string;
+}
+
 /**
- * ConversationalOnboarding component that guides users through profile setup
+ * OnboardingChat component that guides users through profile setup
  * using a chat-based interface with AI assistance
  */
-const ConversationalOnboarding = () => {
+const OnboardingChat = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isTyping, setIsTyping] = useState(false);
@@ -40,6 +54,8 @@ const ConversationalOnboarding = () => {
   const [isComplete, setIsComplete] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isInitializing, setIsInitializing] = useState(true);
+  const [extractedData, setExtractedData] = useState<ExtractedUserData>({});
+  const [onboardingStep, setOnboardingStep] = useState(0);
 
   const messageEndRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -54,7 +70,7 @@ const ConversationalOnboarding = () => {
         const newThreadId = await createThread();
         if (!newThreadId) throw new Error("Failed to create thread");
 
-        const newAssistantId = await getOrCreateAssistant("best-friend");
+        const newAssistantId = await getOrCreateAssistant("professional-coach");
         if (!newAssistantId) throw new Error("Failed to create assistant");
 
         setThreadId(newThreadId);
@@ -63,16 +79,19 @@ const ConversationalOnboarding = () => {
         // Add initial system message to guide the assistant
         await addMessageToThread(
           newThreadId,
-          "I'm starting the onboarding process. Please help me collect information about the user " +
-            "including their name, age, gender, current weight, target weight, height, activity level, " +
-            "and dietary goals. Walk them through this process step by step in a friendly conversational way."
+          "You are helping a new user set up their profile for a nutrition and health app. " +
+            "Ask them about their weight, height, age, activity level, dietary preferences, " +
+            "and weight goals. Get as much information as possible in a conversational way. " +
+            "If they provide partial information, acknowledge what they've shared and ask for the missing details. " +
+            "When you believe you have all the necessary information, indicate that the onboarding is complete."
         );
 
         // Run the assistant to get a welcome message
         const assistantMessages = await runAssistant(
           newThreadId,
           newAssistantId,
-          "best-friend"
+          "professional-coach",
+          handleToolCall
         );
 
         if (assistantMessages && assistantMessages.length > 0) {
@@ -82,7 +101,8 @@ const ConversationalOnboarding = () => {
             {
               id: welcomeMessage.id,
               role: "assistant",
-              content: welcomeMessage.content,
+              content:
+                "Can you tell me about yourself and your goals? Weight, height, age, activity level, diet, and weight loss goal is all I need to help!",
               timestamp: welcomeMessage.createdAt,
             },
           ]);
@@ -93,7 +113,7 @@ const ConversationalOnboarding = () => {
               id: "welcome",
               role: "assistant",
               content:
-                "Welcome to Niblet! I'm here to help you set up your profile so we can track your nutrition goals. Let's start with some basic information. What's your name?",
+                "Can you tell me about yourself and your goals? Weight, height, age, activity level, diet, and weight loss goal is all I need to help!",
               timestamp: new Date(),
             },
           ]);
@@ -114,7 +134,46 @@ const ConversationalOnboarding = () => {
     } else if (status === "unauthenticated") {
       router.push("/auth/signin");
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, router]);
+
+  // Process information extraction through the AI assistant
+  const handleToolCall = async (toolName: string, toolArgs: any) => {
+    if (toolName === "extract_user_data") {
+      // Process extracted data
+      const newData = {
+        ...extractedData,
+        ...toolArgs,
+      };
+
+      setExtractedData(newData);
+      setOnboardingStep(calculateCompletionStep(newData));
+
+      return {
+        success: true,
+        message: "Data extracted successfully",
+        data: newData,
+      };
+    }
+
+    return {
+      success: false,
+      message: `Unknown tool: ${toolName}`,
+    };
+  };
+
+  // Calculate the completion step based on extracted data
+  const calculateCompletionStep = (data: ExtractedUserData): number => {
+    let step = 0;
+
+    if (data.currentWeight) step++;
+    if (data.height) step++;
+    if (data.age) step++;
+    if (data.activityLevel) step++;
+    if (data.goalType || data.targetWeight) step++;
+
+    return Math.min(step, 5);
+  };
 
   // Auto scroll to bottom of chat
   useEffect(() => {
@@ -133,6 +192,8 @@ const ConversationalOnboarding = () => {
           "ready to start",
           "completed your profile",
           "ready to begin",
+          "got everything i need",
+          "that's all i need",
         ];
 
         const messageText = lastMessage.content.toLowerCase();
@@ -140,12 +201,12 @@ const ConversationalOnboarding = () => {
           messageText.includes(phrase)
         );
 
-        if (isOnboardingComplete) {
+        if (isOnboardingComplete || onboardingStep >= 5) {
           setIsComplete(true);
         }
       }
     }
-  }, [messages]);
+  }, [messages, onboardingStep]);
 
   // Send message to assistant
   const handleSendMessage = async () => {
@@ -176,7 +237,8 @@ const ConversationalOnboarding = () => {
       const assistantMessages = await runAssistant(
         threadId,
         assistantId,
-        "best-friend"
+        "professional-coach",
+        handleToolCall
       );
 
       if (assistantMessages && assistantMessages.length > 0) {
@@ -192,6 +254,9 @@ const ConversationalOnboarding = () => {
         };
 
         setMessages((prev) => [...prev, assistantMessage]);
+
+        // Extract data from the message for progress tracking
+        extractDataFromMessages([...messages, userMessage, assistantMessage]);
       }
     } catch (error) {
       console.error("Failed to send message:", error);
@@ -199,6 +264,73 @@ const ConversationalOnboarding = () => {
     } finally {
       setIsTyping(false);
     }
+  };
+
+  // Extract data from messages to track completion
+  const extractDataFromMessages = (msgs: Message[]) => {
+    const allText = msgs.map((msg) => msg.content).join(" ");
+    const data: ExtractedUserData = {};
+
+    // Extract weight
+    const weightMatch = allText.match(
+      /(\d+\.?\d*)\s*(kg|kilograms|pounds|lbs)/i
+    );
+    if (weightMatch) {
+      data.currentWeight = parseFloat(weightMatch[1]);
+    }
+
+    // Extract height
+    const heightMatch = allText.match(
+      /(\d+\.?\d*)\s*(cm|centimeters|meters|m|feet|ft|foot|inches|in|'|")/i
+    );
+    if (heightMatch) {
+      data.height = parseFloat(heightMatch[1]);
+    }
+
+    // Extract age
+    const ageMatch = allText.match(/(\d+)\s*(years|year|yr|y.o.|years old)/i);
+    if (ageMatch) {
+      data.age = parseInt(ageMatch[1]);
+    }
+
+    // Extract activity level
+    const activityLevels = [
+      "sedentary",
+      "lightly active",
+      "moderately active",
+      "very active",
+      "extremely active",
+    ];
+    for (const level of activityLevels) {
+      if (allText.toLowerCase().includes(level)) {
+        data.activityLevel = level;
+        break;
+      }
+    }
+
+    // Extract goal type
+    const goals = [
+      "weight loss",
+      "lose weight",
+      "weight gain",
+      "gain weight",
+      "muscle gain",
+      "maintenance",
+      "maintain weight",
+    ];
+    for (const goal of goals) {
+      if (allText.toLowerCase().includes(goal)) {
+        data.goalType = goal;
+        break;
+      }
+    }
+
+    // Update extracted data
+    setExtractedData((prev) => {
+      const updated = { ...prev, ...data };
+      setOnboardingStep(calculateCompletionStep(updated));
+      return updated;
+    });
   };
 
   // Handle key press (Enter to send)
@@ -266,7 +398,8 @@ const ConversationalOnboarding = () => {
             const assistantMessages = await runAssistant(
               threadId,
               assistantId,
-              "best-friend"
+              "professional-coach",
+              handleToolCall
             );
 
             if (assistantMessages && assistantMessages.length > 0) {
@@ -283,6 +416,13 @@ const ConversationalOnboarding = () => {
               };
 
               setMessages((prev) => [...prev, assistantMessage]);
+
+              // Extract data from the message for progress tracking
+              extractDataFromMessages([
+                ...messages,
+                userMessage,
+                assistantMessage,
+              ]);
             }
           }
         } catch (error) {
@@ -330,11 +470,12 @@ const ConversationalOnboarding = () => {
     if (!session?.user?.id || !threadId || !assistantId) return;
 
     try {
-      // Update user profile with onboarding flags
+      // Update user profile with onboarding data
       await createOrUpdateUserProfile(session.user.id, {
         onboardingCompleted: true,
         threadId: threadId,
         assistantId: assistantId,
+        ...extractedData,
       });
 
       // Navigate to dashboard
@@ -376,6 +517,15 @@ const ConversationalOnboarding = () => {
           niblet<span className="text-blue-400">.ai</span>
         </div>
       </header>
+
+      {/* Progress Indicator */}
+      <div className="px-4 pt-2">
+        <div className="flex justify-between text-sm text-gray-500 mb-1">
+          <span>Onboarding Progress</span>
+          <span>{onboardingStep}/5 completed</span>
+        </div>
+        <Progress value={(onboardingStep / 5) * 100} className="h-2" />
+      </div>
 
       {/* Chat Container */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -468,4 +618,4 @@ const ConversationalOnboarding = () => {
   );
 };
 
-export default ConversationalOnboarding;
+export default OnboardingChat;

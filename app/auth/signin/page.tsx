@@ -3,27 +3,21 @@
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { signInWithEmail } from "@/lib/auth/authService";
-import { signInWithGoogle } from "@/lib/auth/authUtils";
 import { signIn, useSession } from "next-auth/react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 export default function SignInPage() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
 
   const router = useRouter();
   const searchParams = useSearchParams();
   const { status } = useSession();
 
-  // Set mounted state after component mounts to avoid hydration mismatch
+  // Set mounted state after component mounts
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -35,10 +29,7 @@ export default function SignInPage() {
     }
   }, [status, router, mounted]);
 
-  // Get callback URL from search params or use default
-  const callbackUrl = searchParams?.get("callbackUrl") || "/dashboard";
-
-  // Handle any sign-in errors
+  // Handle auth errors from URL
   useEffect(() => {
     if (!mounted) return;
 
@@ -46,66 +37,31 @@ export default function SignInPage() {
     if (errorParam) {
       switch (errorParam) {
         case "OAuthSignin":
-          setError("Error starting Google sign in process. Please try again.");
-          break;
         case "OAuthCallback":
-          setError("Error during Google sign in. Please try again.");
-          break;
-        case "Credentials":
-          setError("Invalid email or password.");
+        case "OAuthCreateAccount":
+        case "EmailCreateAccount":
+        case "Callback":
+        case "OAuthAccountNotLinked":
+        case "EmailSignin":
+        case "CredentialsSignin":
+          setError("An error occurred with authentication. Please try again.");
           break;
         default:
-          setError("An error occurred during sign in. Please try again.");
+          setError("An error occurred. Please try again.");
       }
     }
   }, [searchParams, mounted]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
-    setError("");
-
-    try {
-      // First, authenticate with Firebase
-      await signInWithEmail(email, password);
-
-      // Then use NextAuth for session management
-      const result = await signIn("credentials", {
-        email,
-        password,
-        redirect: false,
-        callbackUrl,
-      });
-
-      if (result?.error) {
-        setError("Invalid email or password");
-      } else {
-        // Successful login, navigate to callback URL or dashboard
-        router.push(callbackUrl);
-      }
-    } catch (error: any) {
-      console.error("Sign in error:", error);
-      setError(error.message || "An unexpected error occurred");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
+  // Handle Google sign in directly with NextAuth
   const handleGoogleSignIn = async () => {
-    setIsLoading(true);
-    setError("");
-
     try {
-      const result = await signInWithGoogle(callbackUrl);
-
-      if (!result.success) {
-        setError(result.error || "Failed to sign in with Google");
-        setIsLoading(false);
-      }
-      // Note: No need to setIsLoading(false) here as the page will redirect on success
-    } catch (error: any) {
-      console.error("Google sign in error:", error);
-      setError(error.message || "Failed to sign in with Google");
+      setIsLoading(true);
+      // Use the standard NextAuth signIn method with redirect
+      await signIn("google", { callbackUrl: "/dashboard" });
+      // No need to handle success as NextAuth will redirect
+    } catch (error) {
+      console.error("Error signing in:", error);
+      setError("Failed to sign in with Google");
       setIsLoading(false);
     }
   };
@@ -142,42 +98,44 @@ export default function SignInPage() {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="john@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="password">Password</Label>
-                <Link
-                  href="/auth/forgot-password"
-                  className="text-sm text-blue-500 hover:text-blue-600"
+          <div className="space-y-4">
+            <Button
+              variant="outline"
+              className="w-full flex items-center justify-center gap-2"
+              onClick={handleGoogleSignIn}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <div className="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full"></div>
+              ) : (
+                <svg
+                  viewBox="0 0 24 24"
+                  width="24"
+                  height="24"
+                  className="h-5 w-5"
                 >
-                  Forgot Password?
-                </Link>
-              </div>
-              <Input
-                id="password"
-                type="password"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-            </div>
-
-            <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? "Signing in..." : "Sign In"}
+                  <path
+                    d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                    fill="#4285F4"
+                  />
+                  <path
+                    d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                    fill="#34A853"
+                  />
+                  <path
+                    d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+                    fill="#FBBC05"
+                  />
+                  <path
+                    d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                    fill="#EA4335"
+                  />
+                  <path d="M1 1h22v22H1z" fill="none" />
+                </svg>
+              )}
+              {isLoading ? "Signing in..." : "Continue with Google"}
             </Button>
-          </form>
+          </div>
 
           <div className="mt-4 text-center text-sm">
             <p>
@@ -201,16 +159,6 @@ export default function SignInPage() {
               </Link>
             </div>
           </div>
-
-          {/* <Button
-            type="button"
-            variant="outline"
-            className="w-full mt-4 flex items-center justify-center gap-2"
-            onClick={handleGoogleSignIn}
-            disabled={isLoading}
-          >
-            <FaGoogle /> Google
-          </Button> */}
         </CardContent>
       </Card>
     </div>

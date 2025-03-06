@@ -119,6 +119,7 @@ export const getOrCreateAssistant = async (
     }
 
     // Create a new assistant with retry
+    // Create a new assistant with retry
     const assistant = await retry(() =>
       openai.beta.assistants.create({
         name: personalities[personality].name,
@@ -221,6 +222,69 @@ export const getOrCreateAssistant = async (
                   },
                 },
                 required: ["food_item"],
+              },
+            },
+          },
+          {
+            type: "function",
+            function: {
+              name: "extract_user_data",
+              description: "Extract user profile data from conversation",
+              parameters: {
+                type: "object",
+                properties: {
+                  age: {
+                    type: "number",
+                    description: "User's age in years",
+                  },
+                  gender: {
+                    type: "string",
+                    description: "User's gender",
+                    enum: ["male", "female", "other", "prefer not to say"],
+                  },
+                  currentWeight: {
+                    type: "number",
+                    description: "User's current weight in pounds",
+                  },
+                  targetWeight: {
+                    type: "number",
+                    description: "User's target weight in pounds",
+                  },
+                  height: {
+                    type: "number",
+                    description: "User's height in inches",
+                  },
+                  activityLevel: {
+                    type: "string",
+                    description: "User's activity level",
+                    enum: [
+                      "sedentary",
+                      "lightly active",
+                      "moderately active",
+                      "very active",
+                      "extremely active",
+                    ],
+                  },
+                  dietaryPreferences: {
+                    type: "array",
+                    description: "User's dietary preferences",
+                    items: {
+                      type: "string",
+                    },
+                  },
+                  allergies: {
+                    type: "array",
+                    description: "User's food allergies",
+                    items: {
+                      type: "string",
+                    },
+                  },
+                  goalType: {
+                    type: "string",
+                    description: "User's weight management goal",
+                    enum: ["Weight Loss", "Weight Maintenance", "Muscle Gain"],
+                  },
+                },
               },
             },
           },
