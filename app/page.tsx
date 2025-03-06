@@ -87,10 +87,10 @@ export default function Home() {
         <section className="py-12 px-6">
           <div className="max-w-screen-xl mx-auto text-center">
             <h1 className="text-4xl md:text-5xl font-bold mb-6">
-              The AI-Powered Meal Tracking Assistant
+              meal & calorie tracking as simple as a text
             </h1>
             <p className="text-xl mb-8 max-w-2xl mx-auto text-gray-600 dark:text-gray-300">
-              Chat with Nibble to log meals, track calories, and reach your
+              Chat with Niblet to log meals, track calories, and reach your
               nutrition goals - no manual entry required.
             </p>
             <Button
