@@ -322,21 +322,21 @@ const Dashboard = ({
 
     setIsRefreshing(true);
 
-    // Prevent duplicate toasts by using a debounce mechanism
-    if (!toastShown) {
-      toast.info("Refreshing meal data...");
-      setToastShown(true);
+    // // Prevent duplicate toasts by using a debounce mechanism
+    // if (!toastShown) {
+    //   toast.info("Refreshing meal data...");
+    //   setToastShown(true);
 
-      // Clear any existing timeout
-      if (toastTimeoutRef.current) {
-        clearTimeout(toastTimeoutRef.current);
-      }
+    //   // Clear any existing timeout
+    //   if (toastTimeoutRef.current) {
+    //     clearTimeout(toastTimeoutRef.current);
+    //   }
 
-      // Create new timeout to prevent toasts for 3 seconds
-      toastTimeoutRef.current = setTimeout(() => {
-        setToastShown(false);
-      }, 3000);
-    }
+    //   // Create new timeout to prevent toasts for 3 seconds
+    //   toastTimeoutRef.current = setTimeout(() => {
+    //     setToastShown(false);
+    //   }, 3000);
+    // }
 
     // Fetch data
     fetchTodaysMeals()

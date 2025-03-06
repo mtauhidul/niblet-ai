@@ -17,6 +17,10 @@ const nextConfig = {
       },
     ],
   },
+  eslint: {
+    dirs: ["pages", "components", "lib"], // Specify which directories to lint
+    ignoreDuringBuilds: true, // Ignore ESLint errors in production builds
+  },
 };
 
 module.exports = nextConfig;

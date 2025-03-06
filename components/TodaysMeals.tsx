@@ -5,6 +5,7 @@ import AddMealModal from "@/components/AddMealModal";
 import type { Meal } from "@/lib/firebase/models/meal";
 import { Edit, Plus, Trash } from "lucide-react";
 import { useState } from "react";
+import NutritionSummary from "./NutritionSummary";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -146,6 +147,45 @@ const TodaysMeals = ({
     );
   }
 
+  const fetchNutritionData = async () => {
+    try {
+      const response = await fetch("/api/nutrition");
+
+      // Check if the request was successful
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+
+      // Check content type to ensure it's JSON
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        console.error("API returned non-JSON response:", await response.text());
+        throw new Error("API returned non-JSON response");
+      }
+
+      // Parse the JSON response
+      const data = await response.json();
+
+      // Return the data with validation
+      return {
+        calories: Number(data.calories) || 0,
+        protein: Number(data.protein) || 0,
+        carbs: Number(data.carbs) || 0,
+        fat: Number(data.fat) || 0,
+      };
+    } catch (error) {
+      console.error("Nutrition data fetch error:", error);
+
+      // Return current values as fallback to prevent UI disruption
+      return {
+        calories: totalCalories,
+        protein: totalProtein,
+        carbs: totalCarbs,
+        fat: totalFat,
+      };
+    }
+  };
+
   return (
     <div>
       {/* Only show title if explicitly requested */}
@@ -197,53 +237,15 @@ const TodaysMeals = ({
       ))}
 
       {/* Daily nutrition summary */}
-      {/* Daily nutrition summary - Clean version without progress bar */}
-      <div className="mt-6 p-5 rounded-lg bg-white dark:bg-gray-800 shadow-sm border border-gray-100 dark:border-gray-700">
-        <h3 className="font-bold text-base mb-4 flex items-center">
-          <div className="w-2 h-2 bg-blue-500 rounded-full mr-2"></div>
-          Daily Totals
-        </h3>
-
-        <div className="space-y-4">
-          {/* Calories row */}
-          <div className="flex justify-between items-center border-b border-gray-100 dark:border-gray-700 pb-3">
-            <span className="text-gray-600 dark:text-gray-400">Calories</span>
-            <span className="text-xl font-bold">{totalCalories}</span>
-          </div>
-
-          {/* Macronutrients in a clean row */}
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">
-                Protein
-              </div>
-              <div className="font-semibold">{totalProtein}g</div>
-            </div>
-
-            <div>
-              <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">
-                Carbs
-              </div>
-              <div className="font-semibold">{totalCarbs}g</div>
-            </div>
-
-            <div>
-              <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">
-                Fat
-              </div>
-              <div className="font-semibold">{totalFat}g</div>
-            </div>
-          </div>
-
-          {/* Remaining calories */}
-          <div className="flex justify-between items-center pt-1">
-            <span className="text-gray-600 dark:text-gray-400">Remaining</span>
-            <span className="font-medium text-green-600 dark:text-green-400">
-              {Math.max(0, 2000 - totalCalories)} cal
-            </span>
-          </div>
-        </div>
-      </div>
+      <NutritionSummary
+        initialData={{
+          calories: totalCalories,
+          protein: totalProtein,
+          carbs: totalCarbs,
+          fat: totalFat,
+        }}
+        fetchNutritionData={fetchNutritionData}
+      />
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog
