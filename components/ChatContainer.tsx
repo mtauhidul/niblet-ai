@@ -143,7 +143,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
                 id: "welcome",
                 role: "assistant",
                 content:
-                  "Hi there! I'm Nibble, your personal nutrition assistant. How can I help you today?",
+                  "Hi there! I'm Niblet, your personal nutrition assistant. How can I help you today?",
                 timestamp: new Date(),
               },
             ]);
@@ -763,7 +763,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Message Nibble..."
+            placeholder="Message Niblet..."
             className="flex-1"
             disabled={isTyping || isUploading}
           />

@@ -143,7 +143,7 @@ export default function Home() {
 
                 <div className="flex items-center mt-4 border-t pt-4">
                   <div className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-full px-4 py-2 text-sm">
-                    Message Nibble...
+                    Message Niblet...
                   </div>
                   <div className="ml-2 w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center">
                     <svg
@@ -206,7 +206,7 @@ export default function Home() {
                 </div>
                 <h3 className="text-xl font-bold mb-2">Chat-Based Tracking</h3>
                 <p className="text-gray-600 dark:text-gray-300">
-                  Simply tell Nibble what you ate in natural language. No need
+                  Simply tell Niblet what you ate in natural language. No need
                   to search databases or scan barcodes.
                 </p>
               </div>
