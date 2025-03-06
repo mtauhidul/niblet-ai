@@ -59,6 +59,10 @@ const Dashboard = ({
   const [loadingError, setLoadingError] = useState<string | null>(null);
   const [showAddMealModal, setShowAddMealModal] = useState(false);
 
+  // Toast state tracking to prevent duplicates
+  const [toastShown, setToastShown] = useState(false);
+  const toastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   // Keep track of the current unsubscribe function
   const unsubscribeRef = useRef<(() => void) | null>(null);
 
@@ -127,6 +131,8 @@ const Dashboard = ({
           setCaloriesRemaining(targetCalories - totalCalories);
           setIsLoading(false);
           setIsRefreshing(false);
+
+          // IMPORTANT: Don't add toast.success here - this prevents duplicate notifications
         },
         (error) => {
           console.error("Error in meals listener:", error);
@@ -149,6 +155,7 @@ const Dashboard = ({
       setIsRefreshing(false);
       return null;
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user?.id, targetCalories, getTodayDateBounds]);
 
   // Setup Firestore real-time listener for meals
@@ -210,15 +217,20 @@ const Dashboard = ({
       setCaloriesConsumed(totalCalories);
       setCaloriesRemaining(targetCalories - totalCalories);
 
-      // Success toast notification
-      toast.success("Meal data refreshed successfully");
+      // Don't show toast here to avoid duplicates - will be handled in handleRefresh
 
       // Set up listener again after manual refresh
       setupFirestoreListener();
+      return meals;
     } catch (error) {
       console.error("Error in fetchTodaysMeals:", error);
-      toast.error("Something went wrong while refreshing your meal data");
+      if (!toastShown) {
+        toast.error("Something went wrong while refreshing your meal data");
+        setToastShown(true);
+        setTimeout(() => setToastShown(false), 3000);
+      }
       setLoadingError("Failed to refresh data. Please try again.");
+      throw error;
     } finally {
       setIsRefreshing(false);
     }
@@ -227,6 +239,7 @@ const Dashboard = ({
     targetCalories,
     getTodayDateBounds,
     setupFirestoreListener,
+    toastShown,
   ]);
 
   // Fetch user data including profile
@@ -269,6 +282,16 @@ const Dashboard = ({
     }
   }, [status, router, session, mounted, fetchUserProfile]);
 
+  // Cleanup for toast timeouts
+  useEffect(() => {
+    return () => {
+      // Clean up timeout on component unmount
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+    };
+  }, []);
+
   // Handle meal logged from chat or any source
   const handleMealLogged = useCallback(() => {
     console.log("Meal logged, refreshing data...");
@@ -277,23 +300,70 @@ const Dashboard = ({
     // If on chat tab, switch to meals tab to show the new meal
     setActiveTab("stats");
 
-    // Show toast notification
-    toast.success("Meal logged successfully!");
-  }, []);
+    // Show toast notification only if another one isn't already showing
+    if (!toastShown) {
+      toast.success("Meal logged successfully!");
+      setToastShown(true);
 
-  // Handle manual refresh
+      // Reset toast state after delay
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+
+      toastTimeoutRef.current = setTimeout(() => {
+        setToastShown(false);
+      }, 3000);
+    }
+  }, [toastShown]);
+
+  // Handle manual refresh with debounce for toasts
   const handleRefresh = useCallback(() => {
-    console.log("Manual refresh requested");
+    if (isRefreshing) return;
 
-    // Clear any existing data first to show loading state
     setIsRefreshing(true);
 
-    // Properly refresh the data
-    fetchTodaysMeals();
+    // Prevent duplicate toasts by using a debounce mechanism
+    if (!toastShown) {
+      toast.info("Refreshing meal data...");
+      setToastShown(true);
 
-    // Show toast notification
-    toast.info("Refreshing meal data...");
-  }, [fetchTodaysMeals]);
+      // Clear any existing timeout
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+
+      // Create new timeout to prevent toasts for 3 seconds
+      toastTimeoutRef.current = setTimeout(() => {
+        setToastShown(false);
+      }, 3000);
+    }
+
+    // Fetch data
+    fetchTodaysMeals()
+      .then(() => {
+        // Only show success if not recently shown
+        if (!toastShown) {
+          toast.success("Meal data refreshed successfully");
+          setToastShown(true);
+
+          // Reset toastShown after 3 seconds
+          if (toastTimeoutRef.current) {
+            clearTimeout(toastTimeoutRef.current);
+          }
+
+          toastTimeoutRef.current = setTimeout(() => {
+            setToastShown(false);
+          }, 3000);
+        }
+        setIsRefreshing(false);
+      })
+      .catch((error) => {
+        console.error("Error refreshing data:", error);
+        toast.error("Failed to refresh data");
+        setIsRefreshing(false);
+        setToastShown(false);
+      });
+  }, [fetchTodaysMeals, isRefreshing, toastShown]);
 
   // Handle weight logged from chat
   const handleWeightLogged = useCallback(async () => {
@@ -304,13 +374,25 @@ const Dashboard = ({
       const profileData = await getUserProfileById(session.user.id);
       if (profileData) {
         setUserProfile(profileData);
-        toast.success("Weight updated successfully!");
+
+        if (!toastShown) {
+          toast.success("Weight updated successfully!");
+          setToastShown(true);
+
+          if (toastTimeoutRef.current) {
+            clearTimeout(toastTimeoutRef.current);
+          }
+
+          toastTimeoutRef.current = setTimeout(() => {
+            setToastShown(false);
+          }, 3000);
+        }
       }
     } catch (error) {
       console.error("Error refreshing user profile:", error);
       toast.error("Failed to update weight information.");
     }
-  }, [session?.user?.id]);
+  }, [session?.user?.id, toastShown]);
 
   const handleSignOut = async () => {
     try {
@@ -326,7 +408,19 @@ const Dashboard = ({
   const handleMealAdded = () => {
     // This will trigger the Firestore listener to update
     setShowAddMealModal(false);
-    toast.success("Meal added successfully!");
+
+    if (!toastShown) {
+      toast.success("Meal added successfully!");
+      setToastShown(true);
+
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+
+      toastTimeoutRef.current = setTimeout(() => {
+        setToastShown(false);
+      }, 3000);
+    }
   };
 
   // Handle hydration properly - don't render until mounted

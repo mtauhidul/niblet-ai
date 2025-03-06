@@ -124,3 +124,53 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Add these styles to your global CSS file or create a dedicated styles module */
+
+/* Message container styles */
+.message-container {
+  display: flex;
+  flex-direction: column;
+  max-width: 85%;
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.user-message {
+  margin-left: auto;
+  background-color: rgb(59, 130, 246);
+  color: white;
+}
+
+.assistant-message {
+  margin-right: auto;
+  background-color: rgb(229, 231, 235);
+}
+
+.dark .assistant-message {
+  background-color: rgb(55, 65, 81);
+  color: white;
+}
+
+/* Image styles */
+.message-image {
+  max-width: 100%;
+  border-radius: 0.375rem;
+  object-fit: contain;
+  max-height: 280px;
+}
+
+/* Text content styles */
+.message-content {
+  margin-bottom: 0.5rem;
+}
+
+/* Image-only message specific styles */
+.image-only-message {
+  padding: 0.5rem;
+}
+
+.image-only-message .message-image {
+  margin: 0;
+}

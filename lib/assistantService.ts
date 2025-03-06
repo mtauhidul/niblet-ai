@@ -275,6 +275,9 @@ export const createThread = async (): Promise<string | null> => {
 };
 
 // Add message to thread with retry
+// Update this function in assistantService.ts to properly handle images
+
+// Add message to thread with retry and image support
 export const addMessageToThread = async (
   threadId: string,
   message: string,
@@ -284,14 +287,19 @@ export const addMessageToThread = async (
   if (!openai) return false;
 
   try {
+    console.log(
+      `Adding message to thread ${threadId}, has image: ${!!imageUrl}`
+    );
+
     // If there's an image URL, add it as content
     if (imageUrl) {
+      // For URLs from Firebase Storage or other cloud providers
       await openai.beta.threads.messages.create(threadId, {
         role: "user",
         content: [
           {
             type: "text",
-            text: message,
+            text: message || "Here's an image.",
           },
           {
             type: "image_url",
@@ -301,16 +309,32 @@ export const addMessageToThread = async (
           },
         ],
       });
+      console.log("Message with image added successfully");
     } else {
       // Normal text-only message
       await openai.beta.threads.messages.create(threadId, {
         role: "user",
         content: message,
       });
+      console.log("Text message added successfully");
     }
+
     return true;
   } catch (error) {
     console.error("Error adding message to thread:", error);
+
+    if (error instanceof OpenAI.APIError) {
+      // Check for specific OpenAI error codes
+      if (error.status === 429) {
+        console.warn("Rate limit reached with OpenAI API.");
+      } else if (error.status === 400 && imageUrl) {
+        console.error(
+          "Bad request with image URL. Check URL format:",
+          imageUrl
+        );
+      }
+    }
+
     return false;
   }
 };

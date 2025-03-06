@@ -197,30 +197,50 @@ const TodaysMeals = ({
       ))}
 
       {/* Daily nutrition summary */}
-      <div className="mt-6 p-4 rounded-lg bg-gray-100 dark:bg-gray-800">
-        <h3 className="font-bold text-sm mb-2">Daily Totals</h3>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <div className="text-xs text-gray-500 dark:text-gray-400">
-              Calories
-            </div>
-            <div className="font-medium">{totalCalories}</div>
+      {/* Daily nutrition summary - Clean version without progress bar */}
+      <div className="mt-6 p-5 rounded-lg bg-white dark:bg-gray-800 shadow-sm border border-gray-100 dark:border-gray-700">
+        <h3 className="font-bold text-base mb-4 flex items-center">
+          <div className="w-2 h-2 bg-blue-500 rounded-full mr-2"></div>
+          Daily Totals
+        </h3>
+
+        <div className="space-y-4">
+          {/* Calories row */}
+          <div className="flex justify-between items-center border-b border-gray-100 dark:border-gray-700 pb-3">
+            <span className="text-gray-600 dark:text-gray-400">Calories</span>
+            <span className="text-xl font-bold">{totalCalories}</span>
           </div>
-          <div>
-            <div className="text-xs text-gray-500 dark:text-gray-400">
-              Protein
+
+          {/* Macronutrients in a clean row */}
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">
+                Protein
+              </div>
+              <div className="font-semibold">{totalProtein}g</div>
             </div>
-            <div className="font-medium">{totalProtein}g</div>
-          </div>
-          <div>
-            <div className="text-xs text-gray-500 dark:text-gray-400">
-              Carbs
+
+            <div>
+              <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">
+                Carbs
+              </div>
+              <div className="font-semibold">{totalCarbs}g</div>
             </div>
-            <div className="font-medium">{totalCarbs}g</div>
+
+            <div>
+              <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">
+                Fat
+              </div>
+              <div className="font-semibold">{totalFat}g</div>
+            </div>
           </div>
-          <div>
-            <div className="text-xs text-gray-500 dark:text-gray-400">Fat</div>
-            <div className="font-medium">{totalFat}g</div>
+
+          {/* Remaining calories */}
+          <div className="flex justify-between items-center pt-1">
+            <span className="text-gray-600 dark:text-gray-400">Remaining</span>
+            <span className="font-medium text-green-600 dark:text-green-400">
+              {Math.max(0, 2000 - totalCalories)} cal
+            </span>
           </div>
         </div>
       </div>

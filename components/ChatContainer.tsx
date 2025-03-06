@@ -2,7 +2,6 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   addMessageToThread,
@@ -18,7 +17,9 @@ import { logWeight } from "@/lib/firebase/models/weightLog";
 import { cn } from "@/lib/utils";
 import { Camera, Mic, MicOff, Send } from "lucide-react";
 import { useSession } from "next-auth/react";
+import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
+import { Card } from "./ui/card";
 
 interface Message {
   id: string;
@@ -296,6 +297,9 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   }, [messages, isTyping]);
 
   // Handle file select for image upload
+  // Update these image-related functions in ChatContainer.tsx
+
+  // Handle file select for image upload
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -307,6 +311,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
       // Validate file type
       if (!file.type.startsWith("image/")) {
         setUploadError("Please select an image file");
+        setIsUploading(false);
         return;
       }
 
@@ -314,10 +319,9 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
       const MAX_FILE_SIZE = 5 * 1024 * 1024;
       if (file.size > MAX_FILE_SIZE) {
         setUploadError("Image must be less than 5MB");
+        setIsUploading(false);
         return;
       }
-
-      console.log("Uploading file:", file.name, file.type, file.size);
 
       // Create FormData object
       const formData = new FormData();
@@ -329,31 +333,70 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
         body: formData,
       });
 
-      console.log("Upload API response:", response);
-
       if (!response.ok) {
         const errorData = await response.json();
-        console.error("Upload failed:", errorData);
         throw new Error(errorData.message || "Failed to upload image");
       }
 
       const data = await response.json();
-      console.log("Upload successful:", data.imageUrl);
 
       // Add image message to chat
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `user-${Date.now()}`,
-          role: "user",
-          content: "[Image uploaded]",
-          timestamp: new Date(),
-          imageUrl: data.imageUrl,
-        },
-      ]);
+      const userMessage: Message = {
+        id: `user-${Date.now()}`,
+        role: "user",
+        // Change this line - don't use "[Image uploaded]" text when sending image to thread
+        content: "", // Empty string instead of "[Image uploaded]"
+        timestamp: new Date(),
+        imageUrl: data.imageUrl,
+      };
+
+      setMessages((prev) => [...prev, userMessage]);
+
+      // If we have thread and assistant IDs, send the image to the assistant
+      if (threadId && assistantId) {
+        setIsTyping(true);
+        // Add the image to the thread with minimal text
+        const messageAdded = await addMessageToThread(
+          threadId,
+          "", // Send empty text with the image to avoid redundant text
+          data.imageUrl
+        );
+
+        if (!messageAdded) {
+          throw new Error("Failed to send image to assistant");
+        }
+
+        // Run the assistant to get a response about the image
+        const assistantMessages = await runAssistant(
+          threadId,
+          assistantId,
+          aiPersonality,
+          handleToolCalls
+        );
+
+        if (assistantMessages && assistantMessages.length > 0) {
+          // Get the latest message
+          const latestMessage = assistantMessages[assistantMessages.length - 1];
+
+          // Add assistant's response to messages
+          const assistantMessage: Message = {
+            id: latestMessage.id,
+            role: "assistant",
+            content: latestMessage.content,
+            timestamp: latestMessage.createdAt,
+          };
+
+          setMessages((prev) => [...prev, assistantMessage]);
+        }
+        setIsTyping(false);
+      }
     } catch (error) {
       console.error("Error uploading image:", error);
-      setUploadError("Failed to upload image. Please try again.");
+      setUploadError(
+        error instanceof Error
+          ? error.message
+          : "Failed to upload image. Please try again."
+      );
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -570,16 +613,6 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
 
       {/* Chat Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {/* Initial prompt if no messages */}
-        {messages.length === 0 && !isTyping && !error && (
-          <Card className="p-4">
-            <p>
-              What would you like to do? Log a meal, estimate calories for a
-              dish, or get a recipe recommendation.
-            </p>
-          </Card>
-        )}
-
         {/* Error message */}
         {error && (
           <div className="mx-auto bg-red-100 dark:bg-red-900 p-3 rounded-lg text-center">
@@ -594,33 +627,92 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
           </div>
         )}
 
-        {/* Chat messages */}
-        {messages.map((msg) => (
-          <div
-            key={msg.id}
-            className={cn(
-              "rounded-lg p-3 max-w-[80%]",
-              msg.role === "user"
-                ? "ml-auto bg-blue-500 text-white"
-                : msg.role === "assistant"
-                ? "mr-auto bg-gray-200 dark:bg-gray-700 dark:text-white"
-                : "mx-auto bg-yellow-100 dark:bg-yellow-900 text-center"
-            )}
-          >
-            {msg.content}
+        {/* Initial prompt if no messages */}
+        {messages.length === 0 && !isTyping && !error && (
+          <Card className="p-4">
+            <p>
+              What would you like to do? Log a meal, estimate calories for a
+              dish, or get a recipe recommendation.
+            </p>
+          </Card>
+        )}
+        {messages.map((msg) => {
+          // Determine if this is an image-only message
+          const isImageOnly =
+            msg.imageUrl &&
+            (!msg.content || msg.content === "[Image uploaded]");
 
-            {/* Display image if present */}
-            {msg.imageUrl && (
-              <div className="mt-2">
-                <img
-                  src={msg.imageUrl}
-                  alt="Uploaded"
-                  className="max-h-60 rounded-md object-contain"
-                />
+          if (isImageOnly) {
+            // Special container just for images
+            return (
+              <div
+                key={msg.id}
+                className={`flex ${
+                  msg.role === "user" ? "justify-end" : "justify-start"
+                }`}
+              >
+                <div
+                  className={`p-1 rounded-lg overflow-hidden ${
+                    msg.role === "user"
+                      ? "bg-blue-500"
+                      : "bg-gray-200 dark:bg-gray-700"
+                  }`}
+                >
+                  <Image
+                    src={msg.imageUrl || ""}
+                    alt="Uploaded content"
+                    width={400}
+                    height={280}
+                    className="rounded-md"
+                    style={{
+                      objectFit: "contain",
+                      maxHeight: "280px",
+                      width: "auto",
+                      height: "auto",
+                    }}
+                  />
+                </div>
               </div>
-            )}
-          </div>
-        ))}
+            );
+          }
+
+          // Regular messages (with or without images)
+          return (
+            <div
+              key={msg.id}
+              className={cn(
+                "rounded-lg p-3",
+                msg.role === "user"
+                  ? "ml-auto bg-blue-500 text-white max-w-[85%]"
+                  : msg.role === "assistant"
+                  ? "mr-auto bg-gray-200 dark:bg-gray-700 dark:text-white max-w-[85%]"
+                  : "mx-auto bg-yellow-100 dark:bg-yellow-900 text-center"
+              )}
+            >
+              {/* Regular message content */}
+              <div>{msg.content}</div>
+
+              {/* Display image if present in a regular message */}
+              {msg.imageUrl && (
+                <div className="mt-2">
+                  <Image
+                    src={msg.imageUrl}
+                    alt="Uploaded content"
+                    width={500}
+                    height={280}
+                    className="rounded-md"
+                    style={{
+                      objectFit: "contain",
+                      maxHeight: "280px",
+                      width: "auto",
+                      height: "auto",
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          );
+        })}
 
         {/* Loading indicator */}
         {isTyping && (

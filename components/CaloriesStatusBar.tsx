@@ -39,7 +39,7 @@ const CaloriesStatusBar: React.FC<CaloriesStatusBarProps> = ({
   }, [caloriesConsumed, prevCalories]);
 
   return (
-    <Card className={`overflow-hidden ${className}`}>
+    <Card className={`overflow-hidden ${className} `}>
       <div className="relative p-2">
         {" "}
         {/* Added padding */}
@@ -47,10 +47,11 @@ const CaloriesStatusBar: React.FC<CaloriesStatusBarProps> = ({
         <motion.div
           className={`absolute rounded-xl ${getBackgroundColor()}`}
           style={{
-            left: "8px",
-            top: "8px",
-            bottom: "8px",
-            width: `calc(${percentage}% - 16px)`, // Adjusted width calculation
+            left: "7px",
+            right: "7px", // Consistent spacing
+            top: "0", // Removes extra top space
+            bottom: "0", // Removes extra bottom space
+            width: `calc(${percentage}% - 16px)`, // Keeps width proper
           }}
           initial={{
             width: `calc(${(prevCalories / targetCalories) * 100}% - 16px)`,
@@ -61,7 +62,7 @@ const CaloriesStatusBar: React.FC<CaloriesStatusBarProps> = ({
           transition={{ type: "spring", stiffness: 120, damping: 20 }}
         />
         {/* Content */}
-        <CardContent className="p-0 flex relative z-10">
+        <CardContent className="p-0 flex relative z-10 ">
           <div className="w-1/2 p-4">
             <AnimatePresence mode="wait">
               <motion.div
