@@ -11,7 +11,7 @@ import {
   Timestamp,
   where,
 } from "firebase/firestore";
-import { Expand, Minimize2 } from "lucide-react";
+import { Expand, Minimize2, RefreshCw } from "lucide-react";
 import { useSession } from "next-auth/react";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -236,43 +236,68 @@ const UnifiedProgressChart: React.FC<UnifiedProgressChartProps> = ({
   }, [session?.user?.id, getDateRange]);
 
   // Load meal data
+  // This is the part of UnifiedProgressChart.tsx that needs to be fixed (around line 271)
+  // The key fix is to change the Firestore query to avoid requiring a complex index
+
+  // loadMealData function in UnifiedProgressChart.tsx
+  // This is a more comprehensive fix for the UnifiedProgressChart component
+  // We'll create a complete replacement for the loadMealData function
+
+  // Updated loadMealData function
+  // Just focus on the specific lines in UnifiedProgressChart.tsx that are causing the error
+  // Around line 271 where the error is occurring:
+
+  // Look for where the meals data is being loaded:
   const loadMealData = useCallback(async () => {
     if (!session?.user?.id) return;
 
     try {
       const { startDate, endDate } = getDateRange();
 
+      // Fetch all meals for the user (without `orderBy`)
       const mealsQuery = query(
         collection(db, "meals"),
-        where("userId", "==", session.user.id),
-        where("date", ">=", startDate),
-        where("date", "<=", endDate),
-        orderBy("date", "asc")
+        where("userId", "==", session.user.id)
       );
 
-      const mealSnapshot = await getDocs(mealsQuery);
+      const querySnapshot = await getDocs(mealsQuery);
       const meals: MealData[] = [];
 
-      mealSnapshot.forEach((doc) => {
+      querySnapshot.forEach((doc) => {
         const data = doc.data();
-        meals.push({
-          id: doc.id,
-          ...data,
-          date:
-            data.date instanceof Timestamp
-              ? data.date.toDate()
-              : new Date(data.date),
-        } as MealData);
+        const mealDate =
+          data.date instanceof Timestamp
+            ? data.date.toDate()
+            : new Date(data.date);
+
+        // 🔹 Filter by date in-memory instead of Firestore
+        if (mealDate >= startDate && mealDate <= endDate) {
+          meals.push({
+            id: doc.id,
+            ...data,
+            date: mealDate,
+          } as MealData);
+        }
       });
 
-      setMealData(meals);
-      return meals;
+      // 🔹 Sort meals manually (in-memory)
+      const sortedMeals = meals.sort((a, b) => {
+        const dateA = a.date instanceof Timestamp ? a.date.toDate() : a.date;
+        const dateB = b.date instanceof Timestamp ? b.date.toDate() : b.date;
+        return dateA.getTime() - dateB.getTime();
+      });
+
+      setMealData(sortedMeals);
+      return sortedMeals;
     } catch (error) {
       console.error("Error loading meal data:", error);
       setError("Failed to load meal data");
       return [];
     }
   }, [session?.user?.id, getDateRange]);
+
+  // And make sure other parts of the component handle empty data gracefully
+  // Add this to the generateChartData function:
 
   // Aggregate data for chart display
   const generateChartData = useCallback(
@@ -537,10 +562,13 @@ const UnifiedProgressChart: React.FC<UnifiedProgressChartProps> = ({
   }
 
   return (
+    // Add this to the UnifiedProgressChart component
+    // This ensures the chart displays properly even when data is missing
+
+    // Update the render part of the component to handle errors gracefully
+
     <Card
-      className={`${
-        isFullScreen ? "fixed inset-0 z-50 m-0 rounded-none overflow-auto" : ""
-      }`}
+      className={`${isFullScreen ? "fixed inset-0 z-50 m-0 rounded-none" : ""}`}
       ref={chartRef}
     >
       <CardHeader className="pb-2">
@@ -562,12 +590,26 @@ const UnifiedProgressChart: React.FC<UnifiedProgressChartProps> = ({
         </CardTitle>
       </CardHeader>
       <CardContent>
+        {/* Error Display */}
         {error && (
-          <div className="bg-red-100 dark:bg-red-900 p-3 rounded-md text-red-800 dark:text-red-200 mb-4">
+          <div className="bg-red-100 dark:bg-red-900/30 p-3 rounded-md text-red-800 dark:text-red-200 mb-4">
             {error}
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-2"
+              onClick={() => {
+                setError(null);
+                loadWeightData();
+                loadMealData();
+              }}
+            >
+              Retry
+            </Button>
           </div>
         )}
 
+        {/* Controls */}
         <div className="flex flex-wrap gap-2 mb-4">
           <div>
             <Tabs
@@ -600,74 +642,99 @@ const UnifiedProgressChart: React.FC<UnifiedProgressChartProps> = ({
           </div>
         </div>
 
-        <div className={`h-64 ${isFullScreen ? "md:h-96" : ""}`}>
-          <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart
-              data={chartData}
-              margin={{ top: 5, right: 30, left: 20, bottom: 15 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis
-                dataKey="date"
-                tickFormatter={formatDate}
-                minTickGap={30}
-              />
-              <YAxis
-                yAxisId="left"
-                orientation="left"
-                label={{
-                  value: chartProps.leftLabel,
-                  angle: -90,
-                  position: "insideLeft",
+        {/* Chart display with fallback for no data */}
+        {chartData.length === 0 ? (
+          <div className="h-64 flex items-center justify-center bg-gray-50 dark:bg-gray-800 rounded-lg">
+            <div className="text-center p-6">
+              <p className="text-gray-500 dark:text-gray-400 mb-4">
+                No data available for the selected time period
+              </p>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  loadWeightData();
+                  loadMealData();
                 }}
-              />
-              {macroType === "weight" && targetWeight && (
+                className="mx-auto"
+              >
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Refresh Data
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className={`h-64 ${isFullScreen ? "md:h-96" : ""}`}>
+            <ResponsiveContainer width="100%" height="100%">
+              {/* Original chart component */}
+              <ComposedChart
+                data={chartData}
+                margin={{ top: 5, right: 30, left: 20, bottom: 15 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="date"
+                  tickFormatter={formatDate}
+                  minTickGap={30}
+                />
                 <YAxis
-                  yAxisId="right"
-                  orientation="right"
+                  yAxisId="left"
+                  orientation="left"
                   label={{
-                    value: "Weight (lbs)",
-                    angle: 90,
-                    position: "insideRight",
+                    value: chartProps.leftLabel,
+                    angle: -90,
+                    position: "insideLeft",
                   }}
                 />
-              )}
-              <Tooltip
-                formatter={(value, name) => [value, name]}
-                labelFormatter={(label) => formatDate(label as string)}
-              />
-              <Legend />
-
-              {/* Render the appropriate bars for the selected data type */}
-              {chartProps.bars?.map((bar, index) => (
-                <Bar
-                  key={index}
-                  dataKey={bar.dataKey}
-                  name={bar.name}
-                  fill={bar.fill}
-                  yAxisId="left"
+                {macroType === "weight" && targetWeight && (
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
+                    label={{
+                      value: "Weight (lbs)",
+                      angle: 90,
+                      position: "insideRight",
+                    }}
+                  />
+                )}
+                <Tooltip
+                  formatter={(value, name) => [value, name]}
+                  labelFormatter={(label) => formatDate(label as string)}
                 />
-              ))}
+                <Legend />
 
-              {/* Render the appropriate lines for the selected data type */}
-              {chartProps.lines?.map((line, index) => (
-                <Line
-                  key={index}
-                  type="monotone"
-                  dataKey={line.dataKey}
-                  name={line.name}
-                  stroke={line.stroke}
-                  strokeWidth={line.strokeWidth}
-                  dot={false}
-                  yAxisId={macroType === "weight" ? "right" : "left"}
-                  strokeDasharray={
-                    "strokeDasharray" in line ? line.strokeDasharray : undefined
-                  }
-                />
-              ))}
-            </ComposedChart>
-          </ResponsiveContainer>
-        </div>
+                {/* Render the appropriate bars for the selected data type */}
+                {chartProps.bars?.map((bar, index) => (
+                  <Bar
+                    key={index}
+                    dataKey={bar.dataKey}
+                    name={bar.name}
+                    fill={bar.fill}
+                    yAxisId="left"
+                  />
+                ))}
+
+                {/* Render the appropriate lines for the selected data type */}
+                {chartProps.lines?.map((line, index) => (
+                  <Line
+                    key={index}
+                    type="monotone"
+                    dataKey={line.dataKey}
+                    name={line.name}
+                    stroke={line.stroke}
+                    strokeWidth={line.strokeWidth}
+                    dot={false}
+                    yAxisId={macroType === "weight" ? "right" : "left"}
+                    strokeDasharray={
+                      "strokeDasharray" in line
+                        ? line.strokeDasharray
+                        : undefined
+                    }
+                  />
+                ))}
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

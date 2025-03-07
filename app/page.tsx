@@ -1,6 +1,7 @@
 // app/page.tsx
 "use client";
 
+import AnimatedTagline from "@/components/AnimatedTagline";
 import { Button } from "@/components/ui/button";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
@@ -86,9 +87,7 @@ export default function Home() {
       <main className="flex-1">
         <section className="py-12 px-6">
           <div className="max-w-screen-xl mx-auto text-center">
-            <h1 className="text-4xl md:text-5xl font-bold mb-6">
-              meal & calorie tracking as simple as a text
-            </h1>
+            <AnimatedTagline />
             <p className="text-xl mb-8 max-w-2xl mx-auto text-gray-600 dark:text-gray-300">
               Chat with Niblet to log meals, track calories, and reach your
               nutrition goals - no manual entry required.

@@ -1,6 +1,7 @@
-// components/ChartsScreen.tsx
+// components/ChartsScreen.tsx - Fixed to properly implement the HamburgerMenu
 "use client";
 
+import HamburgerMenu from "@/components/HamburgerMenu";
 import UnifiedProgressChart from "@/components/UnifiedProgressChart";
 import { useEffect, useState } from "react";
 
@@ -24,17 +25,13 @@ const ChartsScreen = () => {
     <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-900">
       {/* Header - Hide in fullscreen mode */}
       {!isFullScreen && (
-        <header className="p-4 border-b dark:border-gray-800 flex justify-between items-center">
-          <button className="p-2">
-            <div className="w-6 h-0.5 bg-gray-800 dark:bg-gray-200 mb-1"></div>
-            <div className="w-6 h-0.5 bg-gray-800 dark:bg-gray-200 mb-1"></div>
-            <div className="w-6 h-0.5 bg-gray-800 dark:bg-gray-200"></div>
-          </button>
+        <header className="py-3 px-4 border-b dark:border-gray-800 flex justify-between items-center">
+          {/* Use HamburgerMenu component correctly */}
+          <HamburgerMenu />
           <div className="text-2xl font-bold">
             niblet<span className="text-blue-400">.ai</span>
           </div>
-          <div className="w-6"></div>{" "}
-          {/* Placeholder for right side of header */}
+          <div className="w-6"></div>
         </header>
       )}
 
@@ -50,7 +47,7 @@ const ChartsScreen = () => {
       {/* Footer - Hide in fullscreen mode */}
       {!isFullScreen && (
         <div className="p-4 border-t dark:border-gray-800 text-center text-sm text-gray-500">
-          Swipe right to return to Dashboard
+          Swipe right to return to dashboard
         </div>
       )}
     </div>

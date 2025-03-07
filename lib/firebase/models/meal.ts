@@ -1,4 +1,4 @@
-// lib/firebase/models/meal.ts - Fixed with proper indexing and error handling
+// lib/firebase/models/meal.ts - Fixed with proper data fetching to avoid index issues
 import {
   addDoc,
   collection,
@@ -70,9 +70,9 @@ export async function createMeal(mealData: Omit<Meal, "id">): Promise<Meal> {
 }
 
 /**
- * Get meals by user and optional date - Updated with more flexible querying
+ * Get meals by user and optional date - FIXED to avoid complex queries
+ * This simplifies the query to avoid requiring complex indexes
  */
-
 export async function getMealsByUserAndDate(
   userId: string,
   date?: Date
@@ -80,7 +80,7 @@ export async function getMealsByUserAndDate(
   try {
     const mealsCollectionRef = collection(db, "meals");
 
-    // IMPORTANT: Use a simple query that doesn't require complex indexes
+    // IMPORTANT FIX: Use a simple query that doesn't require complex indexes
     // Just query by userId and handle date filtering in memory
     const q = query(mealsCollectionRef, where("userId", "==", userId));
 
