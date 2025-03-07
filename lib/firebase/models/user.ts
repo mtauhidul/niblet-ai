@@ -33,6 +33,7 @@ export interface UserProfile {
   targetCarbs?: number;
   targetFat?: number;
   aiPersonality?: string;
+  aiSettings?: string;
   threadId?: string;
   assistantId?: string;
   onboardingCompleted?: boolean;

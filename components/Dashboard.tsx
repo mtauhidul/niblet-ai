@@ -36,6 +36,7 @@ interface UserProfile {
   userId: string;
   targetCalories?: number;
   aiPersonality?: string;
+  aiSettings?: string;
   threadId?: string;
   assistantId?: string;
   currentWeight?: number;

@@ -22,7 +22,10 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { personalities as personalityDefaults } from "@/lib/assistantService";
+import { getUserProfileById } from "@/lib/auth/authService";
+import { createOrUpdateUserProfile } from "@/lib/firebase/models/user";
 import { ChevronDown, ChevronUp, Plus, Save, Trash } from "lucide-react";
+import { useSession } from "next-auth/react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -41,10 +44,6 @@ interface AISettings {
   >;
   defaultPersonality: string;
   generalInstructions: string;
-}
-
-interface AIPromptManagerProps {
-  adminApiKey?: string;
 }
 
 const defaultAiSettings: AISettings = {
@@ -88,58 +87,73 @@ const defaultAiSettings: AISettings = {
     "You are Niblet, an AI assistant specialized in meal tracking, nutrition, and weight management. Your primary role is to help users log their meals, track their calorie intake, monitor their weight progress, and reach their health goals through better nutrition. Always be helpful, supportive, and knowledgeable about nutrition topics.",
 };
 
-const AIPromptManager: React.FC<AIPromptManagerProps> = ({ adminApiKey }) => {
+const AIPromptManager = () => {
   const [aiSettings, setAiSettings] = useState<AISettings>(defaultAiSettings);
   const [editingPersonality, setEditingPersonality] = useState<string | null>(
     null
   );
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
   const [newPersonalityName, setNewPersonalityName] = useState("");
   const [newPersonalityKey, setNewPersonalityKey] = useState("");
   const [isCreatingNew, setIsCreatingNew] = useState(false);
+  const { data: session } = useSession();
 
-  // Load AI settings
+  // Load AI settings from user profile
   const loadAISettings = useCallback(async () => {
+    if (!session?.user?.id) return;
+
     setIsLoading(true);
     try {
-      // In a real implementation, this would fetch from an API
-      // For now, we'll load from localStorage if available
-      const storedSettings = localStorage.getItem("niblet-ai-settings");
+      // Fetch user profile to get AI settings
+      const userProfile = await getUserProfileById(session.user.id);
 
-      if (storedSettings) {
-        const parsedSettings = JSON.parse(storedSettings);
-        setAiSettings(parsedSettings);
-      }
+      if (userProfile && userProfile.aiSettings) {
+        // Parse stored settings if they exist
+        try {
+          const parsedSettings =
+            typeof userProfile.aiSettings === "string"
+              ? JSON.parse(userProfile.aiSettings)
+              : userProfile.aiSettings;
 
-      // API implementation would look something like:
-      /*
-      const response = await fetch('/api/admin/ai-settings', {
-        headers: {
-          'Authorization': `Bearer ${adminApiKey}`
+          setAiSettings(parsedSettings);
+        } catch (parseError) {
+          console.error("Error parsing AI settings:", parseError);
+          // If parsing fails, use default settings
+          setAiSettings(defaultAiSettings);
         }
-      });
-      
-      if (response.ok) {
-        const settings = await response.json();
-        setAiSettings(settings);
       } else {
-        setErrorMessage('Failed to load AI settings');
+        // Use default settings if none exist
+        setAiSettings(defaultAiSettings);
+
+        // Also try to get current personality from profile if available
+        if (userProfile && userProfile.aiPersonality) {
+          setAiSettings((prev) => ({
+            ...prev,
+            defaultPersonality: userProfile.aiPersonality as string,
+          }));
+        }
       }
-      */
     } catch (error) {
       console.error("Error loading AI settings:", error);
       setErrorMessage("Failed to load AI settings");
+      // Fall back to default settings
+      setAiSettings(defaultAiSettings);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [session?.user?.id]);
 
   // Initial load
   useEffect(() => {
-    loadAISettings();
-  }, [loadAISettings]);
+    if (session?.user?.id) {
+      loadAISettings();
+    } else {
+      setIsLoading(false);
+    }
+  }, [loadAISettings, session?.user?.id]);
 
   // Handle personality changes
   const handlePersonalityChange = (
@@ -174,32 +188,24 @@ const AIPromptManager: React.FC<AIPromptManagerProps> = ({ adminApiKey }) => {
     });
   };
 
-  // Save AI settings
+  // Save AI settings to database
   const saveAISettings = async () => {
-    setIsLoading(true);
+    if (!session?.user?.id) {
+      setErrorMessage("You must be logged in to save settings");
+      toast.error("You must be logged in to save settings");
+      return;
+    }
+
+    setIsSaving(true);
     setSavedMessage(null);
     setErrorMessage(null);
 
     try {
-      // In a real implementation, this would save to an API
-      // For now, we'll save to localStorage
-      localStorage.setItem("niblet-ai-settings", JSON.stringify(aiSettings));
-
-      // API implementation would look something like:
-      /*
-      const response = await fetch('/api/admin/ai-settings', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${adminApiKey}`
-        },
-        body: JSON.stringify(aiSettings)
+      // Save to user profile in database
+      await createOrUpdateUserProfile(session.user.id, {
+        aiSettings: JSON.stringify(aiSettings),
+        aiPersonality: aiSettings.defaultPersonality, // Update active personality
       });
-      
-      if (!response.ok) {
-        throw new Error('Failed to save AI settings');
-      }
-      */
 
       setSavedMessage("AI settings saved successfully!");
       toast.success("AI settings saved successfully!");
@@ -208,7 +214,7 @@ const AIPromptManager: React.FC<AIPromptManagerProps> = ({ adminApiKey }) => {
       setErrorMessage("Failed to save AI settings");
       toast.error("Failed to save AI settings");
     } finally {
-      setIsLoading(false);
+      setIsSaving(false);
     }
   };
 
@@ -216,11 +222,13 @@ const AIPromptManager: React.FC<AIPromptManagerProps> = ({ adminApiKey }) => {
   const addNewPersonality = () => {
     if (!newPersonalityKey || !newPersonalityName) {
       setErrorMessage("Personality key and name are required");
+      toast.error("Personality key and name are required");
       return;
     }
 
     if (aiSettings.personalities[newPersonalityKey]) {
       setErrorMessage("Personality key already exists");
+      toast.error("Personality key already exists");
       return;
     }
 
@@ -241,6 +249,7 @@ const AIPromptManager: React.FC<AIPromptManagerProps> = ({ adminApiKey }) => {
       },
     }));
 
+    toast.success(`Created new personality: ${newPersonalityName}`);
     setNewPersonalityKey("");
     setNewPersonalityName("");
     setIsCreatingNew(false);
@@ -251,11 +260,15 @@ const AIPromptManager: React.FC<AIPromptManagerProps> = ({ adminApiKey }) => {
   const deletePersonality = (key: string) => {
     if (Object.keys(aiSettings.personalities).length <= 1) {
       setErrorMessage("Cannot delete the last personality");
+      toast.error("Cannot delete the last personality");
       return;
     }
 
     if (key === aiSettings.defaultPersonality) {
       setErrorMessage(
+        "Cannot delete the default personality. Please change the default first."
+      );
+      toast.error(
         "Cannot delete the default personality. Please change the default first."
       );
       return;
@@ -272,6 +285,8 @@ const AIPromptManager: React.FC<AIPromptManagerProps> = ({ adminApiKey }) => {
 
       return updated;
     });
+
+    toast.success(`Deleted personality: ${aiSettings.personalities[key].name}`);
   };
 
   // Generate a key from the name
@@ -285,6 +300,15 @@ const AIPromptManager: React.FC<AIPromptManagerProps> = ({ adminApiKey }) => {
 
     setNewPersonalityKey(key);
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center p-8">
+        <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+        <span className="ml-2">Loading settings...</span>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -692,10 +716,10 @@ const AIPromptManager: React.FC<AIPromptManagerProps> = ({ adminApiKey }) => {
 
           <Button
             onClick={saveAISettings}
-            disabled={isLoading}
+            disabled={isSaving || !session?.user?.id}
             className="min-w-32"
           >
-            {isLoading ? (
+            {isSaving ? (
               <>
                 <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></div>
                 Saving...
