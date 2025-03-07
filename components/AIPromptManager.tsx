@@ -203,7 +203,7 @@ const AIPromptManager = () => {
     try {
       // Save to user profile in database
       await createOrUpdateUserProfile(session.user.id, {
-        aiSettings: JSON.stringify(aiSettings),
+        aiSettings: aiSettings,
         aiPersonality: aiSettings.defaultPersonality, // Update active personality
       });
 
