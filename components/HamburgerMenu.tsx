@@ -13,16 +13,12 @@ import {
 import { PersonalityKey } from "@/lib/assistantService";
 import { createOrUpdateUserProfile } from "@/lib/firebase/models/user";
 import {
-  AlertCircle,
+  AmpersandIcon,
   Download,
   Goal,
   Home,
-  Info,
   LogOut,
   Menu,
-  Settings,
-  Smile,
-  Star,
   Thermometer,
   User,
 } from "lucide-react";
@@ -30,11 +26,6 @@ import { signOut, useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "./ui/collapsible";
 import { Label } from "./ui/label";
 import { Switch } from "./ui/switch";
 
@@ -145,7 +136,10 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
           <Menu className="h-6 w-6" />
         </Button>
       </SheetTrigger>
-      <SheetContent side="left" className="w-80">
+      <SheetContent
+        side="left"
+        className="w-80 max-h-screen overflow-y-auto flex flex-col"
+      >
         <SheetHeader className="text-left mb-6">
           <SheetTitle className="text-2xl">
             niblet<span className="text-blue-400">.ai</span>
@@ -153,7 +147,8 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
           <SheetDescription>Meal tracking made simple</SheetDescription>
         </SheetHeader>
 
-        <div className="flex flex-col gap-4 p-2">
+        {/* Main Content - Scrollable */}
+        <div className="flex-1 overflow-y-auto">
           {/* Main Menu Items */}
           <div className="flex flex-col gap-1">
             <Button
@@ -183,6 +178,27 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
             <Button
               variant="ghost"
               className="justify-start"
+              onClick={exportData}
+            >
+              <Download className="mr-2 h-5 w-5" />
+              Export Data
+            </Button>
+
+            {/* Profile (Moved out of Info Section) */}
+            <Button
+              variant="ghost"
+              className="justify-start"
+              onClick={() => {
+                router.push("/profile");
+                setIsOpen(false);
+              }}
+            >
+              <User className="mr-2 h-5 w-5" />
+              Profile
+            </Button>
+            <Button
+              variant="ghost"
+              className="justify-start"
               onClick={() => {
                 router.push("/goals");
                 setIsOpen(false);
@@ -191,192 +207,71 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
               <Goal className="mr-2 h-5 w-5" />
               Goals
             </Button>
-
             <Button
               variant="ghost"
               className="justify-start"
-              onClick={exportData}
+              onClick={() => {
+                router.push("/admin");
+                setIsOpen(false);
+              }}
             >
-              <Download className="mr-2 h-5 w-5" />
-              Export Data
+              <AmpersandIcon className="mr-2 h-5 w-5" />
+              Admin
             </Button>
           </div>
-
-          {/* AI Personality Selection */}
-          <div className="py-4 border-t border-gray-200 dark:border-gray-700">
-            <h3 className="mb-2 font-medium flex items-center">
-              <Smile className="mr-2 h-5 w-5" />
-              AI Personality
-            </h3>
-            <div className="space-y-2 pl-7">
-              <button
-                className={`w-full text-left px-3 py-2 rounded-md ${
-                  currentPersonality === "best-friend"
-                    ? "bg-blue-100 dark:bg-blue-900"
-                    : "hover:bg-gray-100 dark:hover:bg-gray-800"
-                }`}
-                onClick={() => handlePersonalityChange("best-friend")}
-              >
-                Best Friend
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Warm, casual, fun
-                </p>
-              </button>
-
-              <button
-                className={`w-full text-left px-3 py-2 rounded-md ${
-                  currentPersonality === "professional-coach"
-                    ? "bg-blue-100 dark:bg-blue-900"
-                    : "hover:bg-gray-100 dark:hover:bg-gray-800"
-                }`}
-                onClick={() => handlePersonalityChange("professional-coach")}
-              >
-                Professional Coach
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Supportive, data-driven
-                </p>
-              </button>
-
-              <button
-                className={`w-full text-left px-3 py-2 rounded-md ${
-                  currentPersonality === "tough-love"
-                    ? "bg-blue-100 dark:bg-blue-900"
-                    : "hover:bg-gray-100 dark:hover:bg-gray-800"
-                }`}
-                onClick={() => handlePersonalityChange("tough-love")}
-              >
-                Tough Love
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Strict, direct, motivational
-                </p>
-              </button>
-            </div>
-          </div>
-
-          {/* Info Submenu */}
-          <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-            <Collapsible open={infoOpen} onOpenChange={setInfoOpen}>
-              <CollapsibleTrigger asChild>
-                <Button variant="ghost" className="justify-start w-full">
-                  <Info className="mr-2 h-5 w-5" />
-                  Info
-                  <svg
-                    className={`ml-auto h-4 w-4 transition-transform ${
-                      infoOpen ? "rotate-180" : ""
-                    }`}
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <polyline points="6 9 12 15 18 9"></polyline>
-                  </svg>
-                </Button>
-              </CollapsibleTrigger>
-              <CollapsibleContent className="pl-7 space-y-1">
-                <Button
-                  variant="ghost"
-                  className="justify-start w-full"
-                  onClick={() => {
-                    router.push("/profile");
-                    setIsOpen(false);
-                  }}
-                >
-                  <User className="mr-2 h-5 w-5" />
-                  Profile
-                </Button>
-                <Button
-                  variant="ghost"
-                  className="justify-start w-full"
-                  onClick={() => {
-                    router.push("/goals");
-                    setIsOpen(false);
-                  }}
-                >
-                  <Star className="mr-2 h-5 w-5" />
-                  Goals
-                </Button>
-                <Button
-                  variant="ghost"
-                  className="justify-start w-full"
-                  onClick={() => {
-                    router.push("/settings");
-                    setIsOpen(false);
-                  }}
-                >
-                  <Settings className="mr-2 h-5 w-5" />
-                  Preferences
-                </Button>
-                <Button
-                  variant="ghost"
-                  className="justify-start w-full"
-                  onClick={() => {
-                    router.push("/account");
-                    setIsOpen(false);
-                  }}
-                >
-                  <AlertCircle className="mr-2 h-5 w-5" />
-                  Account
-                </Button>
-              </CollapsibleContent>
-            </Collapsible>
-          </div>
-
-          {/* Dark Mode Toggle */}
-          <div className="flex items-center justify-between py-4 border-t border-gray-200 dark:border-gray-700">
-            <Label htmlFor="dark-mode" className="flex items-center">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="mr-2"
-              >
-                <circle cx="12" cy="12" r="4"></circle>
-                <path d="M12 2v2"></path>
-                <path d="M12 20v2"></path>
-                <path d="m4.93 4.93 1.41 1.41"></path>
-                <path d="m17.66 17.66 1.41 1.41"></path>
-                <path d="M2 12h2"></path>
-                <path d="M20 12h2"></path>
-                <path d="m6.34 17.66-1.41 1.41"></path>
-                <path d="m19.07 4.93-1.41 1.41"></path>
-              </svg>
-              Dark Mode
-            </Label>
-            <Switch
-              id="dark-mode"
-              onCheckedChange={(checked) => {
-                document.documentElement.classList.toggle("dark", checked);
-                if (typeof window !== "undefined") {
-                  localStorage.setItem("darkMode", checked ? "true" : "false");
-                }
-              }}
-              defaultChecked={
-                typeof window !== "undefined" &&
-                document.documentElement.classList.contains("dark")
-              }
-            />
-          </div>
-
-          {/* Sign Out Button */}
-          <Button
-            variant="outline"
-            className="mt-4 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950 dark:hover:text-red-300"
-            onClick={handleSignOut}
-          >
-            <LogOut className="mr-2 h-5 w-5" />
-            Sign Out
-          </Button>
         </div>
+
+        {/* ✅ Dark Mode Toggle (Fixed & Responsive) */}
+        <div className="flex items-center justify-between p-4 border-t border-gray-200 dark:border-gray-700">
+          <Label htmlFor="dark-mode" className="flex items-center">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="mr-2"
+            >
+              <circle cx="12" cy="12" r="4"></circle>
+              <path d="M12 2v2"></path>
+              <path d="M12 20v2"></path>
+              <path d="m4.93 4.93 1.41 1.41"></path>
+              <path d="m17.66 17.66 1.41 1.41"></path>
+              <path d="M2 12h2"></path>
+              <path d="M20 12h2"></path>
+              <path d="m6.34 17.66-1.41 1.41"></path>
+              <path d="m19.07 4.93-1.41 1.41"></path>
+            </svg>
+            Dark Mode
+          </Label>
+          <Switch
+            id="dark-mode"
+            onCheckedChange={(checked) => {
+              document.documentElement.classList.toggle("dark", checked);
+              if (typeof window !== "undefined") {
+                localStorage.setItem("darkMode", checked ? "true" : "false");
+              }
+            }}
+            defaultChecked={
+              typeof window !== "undefined" &&
+              document.documentElement.classList.contains("dark")
+            }
+          />
+        </div>
+
+        {/* Sign Out Button - Always at Bottom */}
+        <Button
+          variant="outline"
+          className="mt-4 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950 dark:hover:text-red-300 m-2"
+          onClick={handleSignOut}
+        >
+          <LogOut className="mr-2 h-5 w-5" />
+          Sign Out
+        </Button>
       </SheetContent>
     </Sheet>
   );

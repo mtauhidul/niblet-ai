@@ -5,6 +5,7 @@ import AddMealModal from "@/components/AddMealModal";
 import type { Meal } from "@/lib/firebase/models/meal";
 import { Edit, Plus, Trash } from "lucide-react";
 import { useState } from "react";
+import EditMealModal from "./EditMealModal";
 import NutritionSummary from "./NutritionSummary";
 import {
   AlertDialog,
@@ -35,6 +36,8 @@ const TodaysMeals = ({
   const [deletingMealId, setDeletingMealId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showAddMealModal, setShowAddMealModal] = useState(false);
+  const [editingMeal, setEditingMeal] = useState<Meal | null>(null);
+  const [showEditMealModal, setShowEditMealModal] = useState(false);
 
   // Group meals by type
   const mealsByType: Record<string, Meal[]> = {};
@@ -218,7 +221,15 @@ const TodaysMeals = ({
                   {meal.fat ? `F: ${meal.fat}g` : ""}
                 </div>
                 <div className="flex gap-1 mt-1">
-                  <Button size="sm" variant="ghost" className="h-6 w-6 p-0">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 w-6 p-0"
+                    onClick={() => {
+                      setEditingMeal(meal);
+                      setShowEditMealModal(true);
+                    }}
+                  >
                     <Edit className="h-3 w-3" />
                   </Button>
                   <Button
@@ -271,6 +282,13 @@ const TodaysMeals = ({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      {/* Edit Meal Modal */}
+      <EditMealModal
+        open={showEditMealModal}
+        onOpenChange={setShowEditMealModal}
+        onMealUpdated={onMealDeleted || (() => {})} // Reuse the existing callback or provide a default
+        meal={editingMeal}
+      />
     </div>
   );
 };

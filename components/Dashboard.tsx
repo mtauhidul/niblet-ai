@@ -14,7 +14,7 @@ import {
   Timestamp,
   where,
 } from "firebase/firestore";
-import { Phone, Plus, RefreshCw } from "lucide-react";
+import { Plus, RefreshCw } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -456,7 +456,7 @@ const Dashboard = ({
           niblet<span className="text-blue-400">.ai</span>
         </div>
         <div className="flex gap-2">
-          <Button
+          {/* <Button
             size="icon"
             variant="ghost"
             className={`${isCalling ? "text-green-500 animate-pulse" : ""}`}
@@ -464,7 +464,7 @@ const Dashboard = ({
             disabled={isCalling}
           >
             <Phone className="h-5 w-5" />
-          </Button>
+          </Button> */}
         </div>
       </header>
 

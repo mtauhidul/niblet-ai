@@ -1,7 +1,7 @@
-// components/CaloriesStatusBar.tsx
+// components/CaloriesStatusBar.tsx - Ultra-thin version with reduced surrounding padding
 "use client";
 
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useState } from "react";
 
@@ -39,65 +39,67 @@ const CaloriesStatusBar: React.FC<CaloriesStatusBarProps> = ({
   }, [caloriesConsumed, prevCalories]);
 
   return (
-    <Card className={`overflow-hidden ${className} `}>
-      <div className="relative p-2">
+    <Card className={`overflow-hidden ${className} h-12 p-1 m-2 shadow-sm`}>
+      {" "}
+      {/* Reduced height, removed padding & margin */}
+      <div className="relative h-full">
         {" "}
-        {/* Added padding */}
+        {/* Full height container */}
         {/* Background progress bar with rounded corners */}
         <motion.div
-          className={`absolute rounded-xl ${getBackgroundColor()}`}
+          className={`absolute rounded-sm ${getBackgroundColor()}`}
           style={{
-            left: "7px",
-            right: "7px", // Consistent spacing
-            top: "0", // Removes extra top space
-            bottom: "0", // Removes extra bottom space
-            width: `calc(${percentage}% - 16px)`, // Keeps width proper
+            left: "0px",
+            right: "0px",
+            top: "0",
+            bottom: "0",
+            width: `calc(${percentage}% - 4px)`, // Minimal spacing
           }}
           initial={{
-            width: `calc(${(prevCalories / targetCalories) * 100}% - 16px)`,
+            width: `calc(${(prevCalories / targetCalories) * 100}% - 4px)`,
           }}
           animate={{
-            width: `calc(${percentage}% - 16px)`,
+            width: `calc(${percentage}% - 4px)`,
           }}
           transition={{ type: "spring", stiffness: 120, damping: 20 }}
         />
         {/* Content */}
-        <CardContent className="p-0 flex relative z-10 ">
-          <div className="w-1/2 p-4">
+        <div className="flex h-full relative z-10">
+          <div className="w-1/2 flex items-center justify-center">
             <AnimatePresence mode="wait">
               <motion.div
                 key={caloriesConsumed}
-                initial={{ y: isIncreasing ? 20 : -20, opacity: 0 }}
+                initial={{ y: isIncreasing ? 8 : -8, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
-                exit={{ y: isIncreasing ? -20 : 20, opacity: 0 }}
+                exit={{ y: isIncreasing ? -8 : 8, opacity: 0 }}
                 transition={{ duration: 0.3 }}
-                className="flex flex-col items-center"
+                className="flex items-center"
               >
-                <div className="text-3xl font-bold text-center">
+                <div className="text-base font-bold mr-1">
                   {caloriesConsumed}
                 </div>
-                <div className="text-sm text-center">calories today</div>
+                <div className="text-xs">calories today</div>
               </motion.div>
             </AnimatePresence>
           </div>
-          <div className="w-1/2 p-4">
+          <div className="w-1/2 flex items-center justify-center">
             <AnimatePresence mode="wait">
               <motion.div
                 key={caloriesRemaining}
-                initial={{ y: !isIncreasing ? 20 : -20, opacity: 0 }}
+                initial={{ y: !isIncreasing ? 8 : -8, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
-                exit={{ y: !isIncreasing ? -20 : 20, opacity: 0 }}
+                exit={{ y: !isIncreasing ? -8 : 8, opacity: 0 }}
                 transition={{ duration: 0.3 }}
-                className="flex flex-col items-center"
+                className="flex items-center"
               >
-                <div className="text-3xl font-bold text-center">
+                <div className="text-base font-bold mr-1">
                   {caloriesRemaining}
                 </div>
-                <div className="text-sm text-center">calories remaining</div>
+                <div className="text-xs">calories remaining</div>
               </motion.div>
             </AnimatePresence>
           </div>
-        </CardContent>
+        </div>
       </div>
     </Card>
   );
