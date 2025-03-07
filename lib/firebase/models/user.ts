@@ -33,12 +33,14 @@ export interface UserProfile {
   targetCarbs?: number;
   targetFat?: number;
   aiPersonality?: string;
-  aiSettings?: string;
   threadId?: string;
   assistantId?: string;
   onboardingCompleted?: boolean;
   createdAt?: any;
   updatedAt?: any;
+  // New fields
+  receiveNotifications?: boolean;
+  preferredMealFrequency?: string;
 }
 
 // Create or update user

@@ -3,7 +3,7 @@
 
 import AddMealModal from "@/components/AddMealModal";
 import type { Meal } from "@/lib/firebase/models/meal";
-import { Edit, Plus, Trash } from "lucide-react";
+import { Edit, Trash } from "lucide-react";
 import { useState } from "react";
 import EditMealModal from "./EditMealModal";
 import NutritionSummary from "./NutritionSummary";
@@ -132,13 +132,6 @@ const TodaysMeals = ({
         <p className="text-gray-500 dark:text-gray-400 mb-4">
           No meals logged today. Start tracking your meals!
         </p>
-        <Button
-          size="sm"
-          className="flex items-center gap-1"
-          onClick={() => setShowAddMealModal(true)}
-        >
-          <Plus className="h-4 w-4" /> Add Meal
-        </Button>
 
         {/* Add Meal Modal */}
         <AddMealModal

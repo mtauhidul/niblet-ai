@@ -109,6 +109,9 @@ export async function getUserProfileById(userId: string) {
 }
 
 // 🔹 Update user profile
+// lib/auth/authService.ts
+
+// Update user profile
 export async function updateUserProfile(userId: string, data: any) {
   try {
     const profile = await import("../firebase/models/user").then((module) =>

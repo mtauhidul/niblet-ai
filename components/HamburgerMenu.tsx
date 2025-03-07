@@ -13,18 +13,21 @@ import {
 import { PersonalityKey } from "@/lib/assistantService";
 import { createOrUpdateUserProfile } from "@/lib/firebase/models/user";
 import {
-  AmpersandIcon,
+  ChevronRight,
   Download,
   Goal,
   Home,
   LogOut,
   Menu,
+  Moon,
+  Shield,
+  Sun,
   Thermometer,
   User,
 } from "lucide-react";
 import { signOut, useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Label } from "./ui/label";
 import { Switch } from "./ui/switch";
@@ -39,9 +42,26 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
   onPersonalityChange,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [infoOpen, setInfoOpen] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(false);
   const router = useRouter();
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
+
+  // Initialize dark mode from localStorage on component mount
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const savedDarkMode = localStorage.getItem("darkMode") === "true";
+      setIsDarkMode(savedDarkMode);
+      document.documentElement.classList.toggle("dark", savedDarkMode);
+    }
+  }, []);
+
+  const toggleDarkMode = (checked: boolean) => {
+    setIsDarkMode(checked);
+    document.documentElement.classList.toggle("dark", checked);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("darkMode", checked ? "true" : "false");
+    }
+  };
 
   const handlePersonalityChange = async (personality: PersonalityKey) => {
     if (onPersonalityChange) {
@@ -55,7 +75,11 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
           aiPersonality: personality,
         });
         toast.success(
-          `AI personality changed to ${personality.replace("-", " ")}`
+          `AI personality changed to ${personality.replace("-", " ")}`,
+          {
+            duration: 3000,
+            position: "top-center",
+          }
         );
       } catch (error) {
         console.error("Error updating AI personality:", error);
@@ -63,10 +87,14 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
       }
     }
 
+    // Close the menu after selection
     setIsOpen(false);
   };
 
   const handleSignOut = async () => {
+    // Show indicator that sign out is in progress
+    toast.loading("Signing out...");
+
     try {
       await signOut({ callbackUrl: "/" });
     } catch (error) {
@@ -77,13 +105,11 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
   };
 
   const exportData = () => {
-    // This is a placeholder for data export functionality
-    // In a real implementation, this would call an API to download user data
-    toast.info("Exporting your data...");
+    toast.info("Preparing your data export...");
 
     setTimeout(() => {
       try {
-        // Create a dummy data object for demo purposes
+        // Create a data object for demo purposes
         const exportData = {
           userData: {
             name: session?.user?.name,
@@ -119,10 +145,77 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
         console.error("Error exporting data:", error);
         toast.error("Failed to export data. Please try again.");
       }
-    }, 1500);
+    }, 1000);
 
     setIsOpen(false);
   };
+
+  const menuItems = [
+    {
+      label: "Dashboard",
+      icon: <Home className="h-5 w-5" />,
+      onClick: () => {
+        router.push("/dashboard");
+        setIsOpen(false);
+      },
+    },
+    {
+      label: "Progress Charts",
+      icon: <Thermometer className="h-5 w-5" />,
+      onClick: () => {
+        router.push("/charts");
+        setIsOpen(false);
+      },
+    },
+    {
+      label: "Profile",
+      icon: <User className="h-5 w-5" />,
+      onClick: () => {
+        router.push("/profile");
+        setIsOpen(false);
+      },
+    },
+    {
+      label: "Goals",
+      icon: <Goal className="h-5 w-5" />,
+      onClick: () => {
+        router.push("/goals");
+        setIsOpen(false);
+      },
+    },
+    {
+      label: "Export Data",
+      icon: <Download className="h-5 w-5" />,
+      onClick: exportData,
+    },
+    {
+      label: "Admin",
+      icon: <Shield className="h-5 w-5" />,
+      onClick: () => {
+        router.push("/admin");
+        setIsOpen(false);
+      },
+    },
+  ];
+
+  // AI personality options with human-readable labels
+  const personalityOptions = [
+    {
+      key: "best-friend",
+      label: "Best Friend",
+      description: "Warm & Encouraging",
+    },
+    {
+      key: "professional-coach",
+      label: "Professional Coach",
+      description: "Data-Driven & Precise",
+    },
+    {
+      key: "tough-love",
+      label: "Tough Love",
+      description: "Direct & Challenging",
+    },
+  ];
 
   return (
     <Sheet open={isOpen} onOpenChange={setIsOpen}>
@@ -130,7 +223,7 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
         <Button
           variant="ghost"
           size="icon"
-          className="p-0 h-10 w-10 rounded-full"
+          className="p-0 h-10 w-10 rounded-full focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary cursor-pointer"
           aria-label="Open menu"
         >
           <Menu className="h-6 w-6" />
@@ -138,140 +231,163 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
       </SheetTrigger>
       <SheetContent
         side="left"
-        className="w-80 max-h-screen overflow-y-auto flex flex-col"
+        className="w-[85vw] max-w-xs sm:max-w-sm h-[100dvh] flex flex-col overflow-hidden p-4"
       >
-        <SheetHeader className="text-left mb-6">
-          <SheetTitle className="text-2xl">
+        <SheetHeader className="text-left mb-3 p-0">
+          <SheetTitle className="text-xl flex items-center">
+            <div className="bg-blue-100 dark:bg-blue-900 p-1.5 rounded-full mr-2">
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M4 19h16" />
+                <path d="M4 15h16" />
+                <path d="M4 11h16" />
+                <path d="M4 7h16" />
+              </svg>
+            </div>
             niblet<span className="text-blue-400">.ai</span>
           </SheetTitle>
-          <SheetDescription>Meal tracking made simple</SheetDescription>
+          <SheetDescription className="text-sm">
+            Meal tracking made simple
+          </SheetDescription>
         </SheetHeader>
 
         {/* Main Content - Scrollable */}
         <div className="flex-1 overflow-y-auto">
-          {/* Main Menu Items */}
-          <div className="flex flex-col gap-1">
-            <Button
-              variant="ghost"
-              className="justify-start"
-              onClick={() => {
-                router.push("/dashboard");
-                setIsOpen(false);
-              }}
-            >
-              <Home className="mr-2 h-5 w-5" />
-              Dashboard
-            </Button>
+          {/* Main Navigation */}
+          <div className="mb-4">
+            <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+              Navigation
+            </div>
+            <nav>
+              <ul className="space-y-0.5">
+                {menuItems.map((item, index) => (
+                  <li key={index}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-full justify-start text-left py-1.5 h-auto group"
+                      onClick={item.onClick}
+                    >
+                      <span className="flex items-center">
+                        <span className="mr-2 text-gray-500 dark:text-gray-400 group-hover:text-primary">
+                          {item.icon}
+                        </span>
+                        <span className="text-sm">{item.label}</span>
+                      </span>
+                      <ChevronRight className="ml-auto h-3 w-3 opacity-50" />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          </div>
 
-            <Button
-              variant="ghost"
-              className="justify-start"
-              onClick={() => {
-                router.push("/charts");
-                setIsOpen(false);
-              }}
-            >
-              <Thermometer className="mr-2 h-5 w-5" />
-              Progress Charts
-            </Button>
-
-            <Button
-              variant="ghost"
-              className="justify-start"
-              onClick={exportData}
-            >
-              <Download className="mr-2 h-5 w-5" />
-              Export Data
-            </Button>
-
-            {/* Profile (Moved out of Info Section) */}
-            <Button
-              variant="ghost"
-              className="justify-start"
-              onClick={() => {
-                router.push("/profile");
-                setIsOpen(false);
-              }}
-            >
-              <User className="mr-2 h-5 w-5" />
-              Profile
-            </Button>
-            <Button
-              variant="ghost"
-              className="justify-start"
-              onClick={() => {
-                router.push("/goals");
-                setIsOpen(false);
-              }}
-            >
-              <Goal className="mr-2 h-5 w-5" />
-              Goals
-            </Button>
-            <Button
-              variant="ghost"
-              className="justify-start"
-              onClick={() => {
-                router.push("/admin");
-                setIsOpen(false);
-              }}
-            >
-              <AmpersandIcon className="mr-2 h-5 w-5" />
-              Admin
-            </Button>
+          {/* AI Personality Section - More compact */}
+          <div className="mb-4">
+            <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+              AI Personality
+            </div>
+            <div className="space-y-1 rounded-md border p-2">
+              {personalityOptions.map((option) => (
+                <div
+                  key={option.key}
+                  className={`flex items-center p-1.5 cursor-pointer rounded-md transition-colors ${
+                    currentPersonality === option.key
+                      ? "bg-blue-100 dark:bg-blue-900/50"
+                      : "hover:bg-gray-100 dark:hover:bg-gray-800"
+                  }`}
+                  onClick={() =>
+                    handlePersonalityChange(option.key as PersonalityKey)
+                  }
+                >
+                  <div
+                    className={`w-2 h-2 rounded-full mr-2 ${
+                      currentPersonality === option.key
+                        ? "bg-blue-500"
+                        : "bg-gray-300 dark:bg-gray-600"
+                    }`}
+                  ></div>
+                  <div className="flex-1">
+                    <div className="font-medium text-sm">{option.label}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">
+                      {option.description}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 
-        {/* ✅ Dark Mode Toggle (Fixed & Responsive) */}
-        <div className="flex items-center justify-between p-4 border-t border-gray-200 dark:border-gray-700">
-          <Label htmlFor="dark-mode" className="flex items-center">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="mr-2"
+        {/* Footer Section */}
+        <div className="mt-auto border-t dark:border-gray-800 pt-4 pb-1 space-y-3">
+          {/* Dark Mode Toggle */}
+          <div className="flex items-center justify-between">
+            <Label
+              htmlFor="dark-mode"
+              className="flex items-center cursor-pointer"
             >
-              <circle cx="12" cy="12" r="4"></circle>
-              <path d="M12 2v2"></path>
-              <path d="M12 20v2"></path>
-              <path d="m4.93 4.93 1.41 1.41"></path>
-              <path d="m17.66 17.66 1.41 1.41"></path>
-              <path d="M2 12h2"></path>
-              <path d="M20 12h2"></path>
-              <path d="m6.34 17.66-1.41 1.41"></path>
-              <path d="m19.07 4.93-1.41 1.41"></path>
-            </svg>
-            Dark Mode
-          </Label>
-          <Switch
-            id="dark-mode"
-            onCheckedChange={(checked) => {
-              document.documentElement.classList.toggle("dark", checked);
-              if (typeof window !== "undefined") {
-                localStorage.setItem("darkMode", checked ? "true" : "false");
-              }
-            }}
-            defaultChecked={
-              typeof window !== "undefined" &&
-              document.documentElement.classList.contains("dark")
-            }
-          />
-        </div>
+              {isDarkMode ? (
+                <Moon className="h-4 w-4 mr-2" />
+              ) : (
+                <Sun className="h-4 w-4 mr-2" />
+              )}
+              {isDarkMode ? "Dark Mode" : "Light Mode"}
+            </Label>
+            <Switch
+              id="dark-mode"
+              checked={isDarkMode}
+              onCheckedChange={toggleDarkMode}
+            />
+          </div>
 
-        {/* Sign Out Button - Always at Bottom */}
-        <Button
-          variant="outline"
-          className="mt-4 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950 dark:hover:text-red-300 m-2"
-          onClick={handleSignOut}
-        >
-          <LogOut className="mr-2 h-5 w-5" />
-          Sign Out
-        </Button>
+          {/* User Info - Simplified for better space usage */}
+          {session?.user && (
+            <div className="py-2 bg-gray-100 dark:bg-gray-800 rounded-md">
+              <div className="flex items-center">
+                <div className="bg-blue-100 dark:bg-blue-900 rounded-full p-1 mr-2">
+                  {session.user.image ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={session.user.image}
+                      alt={session.user.name || "User"}
+                      className="h-5 w-5 rounded-full"
+                    />
+                  ) : (
+                    <User className="h-4 w-4" />
+                  )}
+                </div>
+                <div className="flex-1 overflow-hidden">
+                  <div className="font-medium text-sm truncate">
+                    {session.user.name || "User"}
+                  </div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                    {session.user.email}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Sign Out Button - Adjusted to fit better */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950 dark:hover:text-red-300"
+            onClick={handleSignOut}
+          >
+            <LogOut className="mr-2 h-4 w-4" />
+            Sign Out
+          </Button>
+        </div>
       </SheetContent>
     </Sheet>
   );

@@ -46,8 +46,59 @@ export async function PATCH(request: NextRequest) {
     // Get request body
     const data = await request.json();
 
+    // Extract fields for profile update
+    const profileUpdate = {
+      age: data.age,
+      gender: data.gender,
+      currentWeight: data.currentWeight,
+      targetWeight: data.targetWeight,
+      height: data.height,
+      activityLevel: data.activityLevel,
+      dietaryPreferences: data.dietaryPreferences,
+      allergies: data.allergies,
+      goalType: data.goalType,
+      targetCalories: data.targetCalories,
+      targetProtein: data.targetProtein,
+      targetCarbs: data.targetCarbs,
+      targetFat: data.targetFat,
+      aiPersonality: data.aiPersonality,
+      // New fields
+      receiveNotifications: data.receiveNotifications,
+      preferredMealFrequency: data.preferredMealFrequency,
+    };
+
+    // Process allergies if it's a string (comma-separated)
+    if (typeof data.allergies === "string") {
+      profileUpdate.allergies = data.allergies
+        .split(",")
+        .map((item: string) => item.trim())
+        .filter(Boolean);
+    }
+
+    // Process dietaryPreferences if needed
+    if (typeof data.dietaryPreferences === "string") {
+      profileUpdate.dietaryPreferences = [data.dietaryPreferences];
+    }
+
+    // Validate numeric fields
+    if (data.age !== undefined && (isNaN(data.age) || data.age < 0)) {
+      return NextResponse.json(
+        { message: "Age must be a valid positive number" },
+        { status: 400 }
+      );
+    }
+
+    // Remove undefined fields to prevent overwriting with null values
+    (Object.keys(profileUpdate) as (keyof typeof profileUpdate)[]).forEach(
+      (key) => {
+        if (profileUpdate[key] === undefined) {
+          delete profileUpdate[key];
+        }
+      }
+    );
+
     // Update user profile
-    const userProfile = await updateUserProfile(token.sub, data);
+    const userProfile = await updateUserProfile(token.sub, profileUpdate);
 
     return NextResponse.json(userProfile);
   } catch (error) {

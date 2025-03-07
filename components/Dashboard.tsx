@@ -27,6 +27,7 @@ import TodaysMeals from "./TodaysMeals";
 import { Button } from "./ui/button";
 import { Skeleton } from "./ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
+import WeightProgressCard from "./WeightProgressCard";
 
 interface DashboardProps {
   aiPersonality?: PersonalityKey;
@@ -41,7 +42,10 @@ interface UserProfile {
   assistantId?: string;
   currentWeight?: number;
   targetWeight?: number;
+  startWeight?: number;
 }
+
+const weightLogs: any[] = []; // Define weightLogs variable
 
 const Dashboard = ({
   aiPersonality: propAiPersonality,
@@ -292,6 +296,17 @@ const Dashboard = ({
       }
     };
   }, []);
+
+  const getStartWeightFromLogs = (logs: any[]) => {
+    if (!logs || logs.length === 0) return null;
+
+    // Find the earliest log with a valid weight
+    const sortedLogs = [...logs].sort(
+      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
+
+    return sortedLogs[0]?.weight || null;
+  };
 
   // Handle meal logged from chat or any source
   const handleMealLogged = useCallback(() => {
@@ -558,38 +573,14 @@ const Dashboard = ({
             />
 
             {userProfile?.currentWeight && userProfile?.targetWeight && (
-              <div className="mt-6 p-4 bg-gray-100 dark:bg-gray-800 rounded-lg">
-                <h3 className="font-bold mb-2">Weight Progress</h3>
-                <div className="flex justify-between items-center">
-                  <div>
-                    <div className="text-sm text-gray-500 dark:text-gray-400">
-                      Current
-                    </div>
-                    <div className="text-lg font-medium">
-                      {userProfile.currentWeight} lbs
-                    </div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-sm text-gray-500 dark:text-gray-400">
-                      Remaining
-                    </div>
-                    <div className="text-lg font-medium">
-                      {Math.abs(
-                        userProfile.currentWeight - userProfile.targetWeight
-                      ).toFixed(1)}{" "}
-                      lbs
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-sm text-gray-500 dark:text-gray-400">
-                      Target
-                    </div>
-                    <div className="text-lg font-medium">
-                      {userProfile.targetWeight} lbs
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <WeightProgressCard
+                currentWeight={userProfile.currentWeight}
+                targetWeight={userProfile.targetWeight}
+                startWeight={
+                  userProfile.startWeight || getStartWeightFromLogs(weightLogs)
+                }
+                weightLogs={weightLogs}
+              />
             )}
 
             <div className="py-6 text-center">

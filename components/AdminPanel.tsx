@@ -30,7 +30,14 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { ChevronDown, ChevronUp, Plus, Save, Trash } from "lucide-react";
+import {
+  ArrowLeft,
+  ChevronDown,
+  ChevronUp,
+  Plus,
+  Save,
+  Trash,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -410,6 +417,19 @@ const AdminPanel: React.FC = () => {
         </div>
         <div className="w-6"></div> {/* Empty div for balanced spacing */}
       </header>
+
+      {/* Header with back button */}
+      <div className="flex items-center mb-4">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => router.push("/dashboard")}
+          className="mr-2"
+        >
+          <ArrowLeft className="h-5 w-5" />
+        </Button>
+        <h1 className="text-xl font-bold">Admin</h1>
+      </div>
 
       <Tabs
         defaultValue="ai-settings"
