@@ -33,17 +33,7 @@ interface DashboardProps {
   aiPersonality?: PersonalityKey;
 }
 
-interface UserProfile {
-  userId: string;
-  targetCalories?: number;
-  aiPersonality?: string;
-  aiSettings?: string;
-  threadId?: string;
-  assistantId?: string;
-  currentWeight?: number;
-  targetWeight?: number;
-  startWeight?: number;
-}
+import type { UserProfile } from "@/lib/firebase/models/user";
 
 const weightLogs: any[] = []; // Define weightLogs variable
 
@@ -577,7 +567,7 @@ const Dashboard = ({
                 currentWeight={userProfile.currentWeight}
                 targetWeight={userProfile.targetWeight}
                 startWeight={
-                  userProfile.startWeight || getStartWeightFromLogs(weightLogs)
+                  userProfile.targetWeight || getStartWeightFromLogs(weightLogs)
                 }
                 weightLogs={weightLogs}
               />
