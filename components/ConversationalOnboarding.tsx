@@ -1,4 +1,4 @@
-// components/OnboardingChat.tsx (continued)
+// components/ConversationalOnboarding.tsx
 "use client";
 
 import { Button } from "@/components/ui/button";
@@ -10,13 +10,13 @@ import {
   transcribeAudio,
 } from "@/lib/assistantService";
 import { createOrUpdateUserProfile } from "@/lib/firebase/models/user";
-import { ArrowRight, Mic, MicOff, Send } from "lucide-react";
+import { Mic, MicOff, Send } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { formatChatText } from "./ChatContainer";
 import { Input } from "./ui/input";
 import { Progress } from "./ui/progress";
-import { Skeleton } from "./ui/skeleton";
 
 interface Message {
   id: string;
@@ -26,22 +26,24 @@ interface Message {
 }
 
 interface ExtractedUserData {
-  age?: number;
-  gender?: string;
-  currentWeight?: number;
-  targetWeight?: number;
-  height?: number;
-  activityLevel?: string;
-  dietaryPreferences?: string[];
-  allergies?: string[];
-  goalType?: string;
+  name?: string;
+  age?: number | null;
+  gender?: string | null;
+  currentWeight?: number | null;
+  targetWeight?: number | null;
+  height?: number | null;
+  activityLevel?: string | null;
+  dietaryPreferences?: string[] | null;
+  allergies?: string[] | null;
+  goalType?: string | null;
+  targetDate?: string | null;
 }
 
 /**
- * OnboardingChat component that guides users through profile setup
+ * ConversationalOnboarding component that guides users through profile setup
  * using a chat-based interface with AI assistance
  */
-const OnboardingChat = () => {
+const ConversationalOnboarding = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isTyping, setIsTyping] = useState(false);
@@ -76,14 +78,18 @@ const OnboardingChat = () => {
         setThreadId(newThreadId);
         setAssistantId(newAssistantId);
 
-        // Add initial system message to guide the assistant
+        // Add initial system message to guide the assistant with the specific flow
         await addMessageToThread(
           newThreadId,
           "You are helping a new user set up their profile for a nutrition and health app. " +
-            "Ask them about their weight, height, age, activity level, dietary preferences, " +
-            "and weight goals. Get as much information as possible in a conversational way. " +
-            "If they provide partial information, acknowledge what they've shared and ask for the missing details. " +
-            "When you believe you have all the necessary information, indicate that the onboarding is complete."
+            "Start by greeting the user with 'Hi, I'm Nibble! I'll be helping you set up your goal and kick off your calorie-tracking journey. First, what's your name?' " +
+            "Then follow this exact sequence: " +
+            "1. After they provide their name, say 'Nice to meet you, [Name]! What's your current weight?' " +
+            "2. After weight, ask 'Great! Now, could you tell me your height and age?' If they provide only one, ask for the missing value. " +
+            "3. Then ask 'Tell me about your daily activity. Do you exercise regularly or have a more sedentary routine?' " +
+            "4. Next, ask 'Do you follow any particular diet or have specific dietary preferences?' " +
+            "5. Finally, ask 'What's your weight loss goal and by what date would you like to reach that goal?' If they provide only one, ask for the missing value. " +
+            "Once all information is collected, inform them you're setting up their profile and thank them for the information."
         );
 
         // Run the assistant to get a welcome message
@@ -101,8 +107,7 @@ const OnboardingChat = () => {
             {
               id: welcomeMessage.id,
               role: "assistant",
-              content:
-                "Can you tell me about yourself and your goals? Weight, height, age, activity level, diet, and weight loss goal is all I need to help!",
+              content: welcomeMessage.content,
               timestamp: welcomeMessage.createdAt,
             },
           ]);
@@ -113,7 +118,7 @@ const OnboardingChat = () => {
               id: "welcome",
               role: "assistant",
               content:
-                "Can you tell me about yourself and your goals? Weight, height, age, activity level, diet, and weight loss goal is all I need to help!",
+                "Hi, I'm Nibble! I'll be helping you set up your goal and kick off your calorie-tracking journey. First, what's your name?",
               timestamp: new Date(),
             },
           ]);
@@ -166,13 +171,14 @@ const OnboardingChat = () => {
   const calculateCompletionStep = (data: ExtractedUserData): number => {
     let step = 0;
 
+    if (data.name) step++;
     if (data.currentWeight) step++;
-    if (data.height) step++;
-    if (data.age) step++;
+    if (data.height && data.age) step++;
     if (data.activityLevel) step++;
-    if (data.goalType || data.targetWeight) step++;
+    if (data.dietaryPreferences) step++;
+    if (data.targetWeight && data.targetDate) step++;
 
-    return Math.min(step, 5);
+    return Math.min(step, 6);
   };
 
   // Auto scroll to bottom of chat
@@ -194,6 +200,7 @@ const OnboardingChat = () => {
           "ready to begin",
           "got everything i need",
           "that's all i need",
+          "setting up your profile",
         ];
 
         const messageText = lastMessage.content.toLowerCase();
@@ -201,22 +208,62 @@ const OnboardingChat = () => {
           messageText.includes(phrase)
         );
 
-        if (isOnboardingComplete || onboardingStep >= 5) {
+        if (isOnboardingComplete || onboardingStep >= 6) {
           setIsComplete(true);
         }
       }
     }
   }, [messages, onboardingStep]);
 
+  // When onboarding is complete, save data and redirect to dashboard
+  useEffect(() => {
+    if (isComplete && threadId && session?.user?.id) {
+      const completeOnboarding = async () => {
+        try {
+          // Save all the onboarding data to user profile
+          await createOrUpdateUserProfile(session.user.id, {
+            onboardingThreadId: threadId,
+            onboardingCompleted: true,
+            name: extractedData.name,
+            age: extractedData.age || undefined,
+            gender: extractedData.gender || undefined,
+            currentWeight: extractedData.currentWeight || undefined,
+            targetWeight: extractedData.targetWeight || undefined,
+            height: extractedData.height || undefined,
+            activityLevel: extractedData.activityLevel || undefined,
+            dietaryPreferences: extractedData.dietaryPreferences || undefined,
+            goalType: extractedData.targetWeight ? "Weight Loss" : undefined,
+          });
+
+          // Wait a moment to show the final message
+          setTimeout(() => {
+            // Redirect to dashboard
+            router.push("/dashboard");
+          }, 2000);
+        } catch (error) {
+          console.error("Error completing onboarding:", error);
+          setError(
+            "There was a problem saving your profile. Please try again."
+          );
+        }
+      };
+
+      completeOnboarding();
+    }
+  }, [isComplete, threadId, session?.user?.id, router, extractedData]);
+
   // Send message to assistant
   const handleSendMessage = async () => {
     if (!inputValue.trim() || !threadId || !assistantId || isTyping) return;
+
+    // Format the input text
+    const formattedText = formatChatText(inputValue);
 
     // Add user message to UI
     const userMessage: Message = {
       id: `user-${Date.now()}`,
       role: "user",
-      content: inputValue,
+      content: formattedText,
       timestamp: new Date(),
     };
 
@@ -227,7 +274,7 @@ const OnboardingChat = () => {
     try {
       // Send message to thread
       setIsTyping(true);
-      const messageAdded = await addMessageToThread(threadId, inputValue);
+      const messageAdded = await addMessageToThread(threadId, formattedText);
 
       if (!messageAdded) {
         throw new Error("Failed to send message");
@@ -271,6 +318,14 @@ const OnboardingChat = () => {
     const allText = msgs.map((msg) => msg.content).join(" ");
     const data: ExtractedUserData = {};
 
+    // Extract name - typically would be in the first user response
+    const nameMatch = allText.match(
+      /my name is ([A-Za-z]+)|i'm ([A-Za-z]+)|i am ([A-Za-z]+)/i
+    );
+    if (nameMatch) {
+      data.name = nameMatch[1] || nameMatch[2] || nameMatch[3];
+    }
+
     // Extract weight
     const weightMatch = allText.match(
       /(\d+\.?\d*)\s*(kg|kilograms|pounds|lbs)/i
@@ -308,21 +363,51 @@ const OnboardingChat = () => {
       }
     }
 
-    // Extract goal type
-    const goals = [
-      "weight loss",
-      "lose weight",
-      "weight gain",
-      "gain weight",
-      "muscle gain",
-      "maintenance",
-      "maintain weight",
+    // Extract dietary preferences
+    const diets = [
+      "vegetarian",
+      "vegan",
+      "pescatarian",
+      "keto",
+      "paleo",
+      "mediterranean",
+      "gluten-free",
+      "dairy-free",
     ];
-    for (const goal of goals) {
-      if (allText.toLowerCase().includes(goal)) {
-        data.goalType = goal;
-        break;
+    const dietPreferences = [];
+    for (const diet of diets) {
+      if (allText.toLowerCase().includes(diet)) {
+        dietPreferences.push(diet);
       }
+    }
+    if (dietPreferences.length > 0) {
+      data.dietaryPreferences = dietPreferences;
+    }
+
+    // Extract target weight
+    const targetWeightMatch = allText.match(
+      /target weight .*?(\d+\.?\d*)|goal .*?(\d+\.?\d*)\s*(kg|kilograms|pounds|lbs)|reach .*?(\d+\.?\d*)\s*(kg|kilograms|pounds|lbs)|get down to .*?(\d+\.?\d*)\s*(kg|kilograms|pounds|lbs)/i
+    );
+    if (targetWeightMatch) {
+      const matchGroups = targetWeightMatch.filter(
+        (group) => group !== undefined
+      );
+      for (const group of matchGroups) {
+        if (!isNaN(parseFloat(group))) {
+          data.targetWeight = parseFloat(group);
+          break;
+        }
+      }
+    }
+
+    // Extract target date
+    const dateRegex =
+      /by\s+(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|september|oct|october|nov|november|dec|december)\s+(\d{1,2})(?:st|nd|rd|th)?(?:\s*,\s*(\d{4}))?|by\s+(\d{1,2})(?:st|nd|rd|th)?\s+(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|september|oct|october|nov|november|dec|december)(?:\s*,\s*(\d{4}))?|in\s+(\d+)\s+(days|weeks|months|years)/i;
+
+    const dateMatch = allText.match(dateRegex);
+    if (dateMatch) {
+      // Just store the raw match for now, we can process it more precisely if needed
+      data.targetDate = dateMatch[0];
     }
 
     // Update extracted data
@@ -368,8 +453,11 @@ const OnboardingChat = () => {
             throw new Error("Failed to transcribe audio");
           }
 
+          // Apply formatting to ensure 'i' is capitalized
+          const formattedText = formatChatText(transcribedText);
+
           // Show transcribed text in input
-          setInputValue(transcribedText);
+          setInputValue(formattedText);
 
           // If we have the thread and assistant IDs, automatically send the message
           if (threadId && assistantId) {
@@ -377,7 +465,7 @@ const OnboardingChat = () => {
             const userMessage: Message = {
               id: `user-${Date.now()}`,
               role: "user",
-              content: transcribedText,
+              content: formattedText,
               timestamp: new Date(),
             };
 
@@ -387,7 +475,7 @@ const OnboardingChat = () => {
             // Send message to thread
             const messageAdded = await addMessageToThread(
               threadId,
-              transcribedText
+              formattedText
             );
 
             if (!messageAdded) {
@@ -465,45 +553,19 @@ const OnboardingChat = () => {
     }
   };
 
-  // Complete onboarding and go to dashboard
-  const completeOnboarding = async () => {
-    if (!session?.user?.id || !threadId || !assistantId) return;
+  // Prevent hydration errors by not rendering until mounted
+  useEffect(() => {
+    // Mounted is already handled by the auth check
+  }, []);
 
-    try {
-      // Update user profile with onboarding data
-      await createOrUpdateUserProfile(session.user.id, {
-        onboardingCompleted: true,
-        threadId: threadId,
-        assistantId: assistantId,
-        ...extractedData,
-      });
-
-      // Navigate to dashboard
-      router.push("/dashboard");
-    } catch (error) {
-      console.error("Error completing onboarding:", error);
-      setError("There was a problem saving your profile. Please try again.");
-    }
-  };
-
-  // Show loading state while initializing
   if (isInitializing) {
     return (
-      <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-900">
-        <header className="p-4 border-b dark:border-gray-800 flex justify-center items-center">
-          <div className="text-2xl font-bold">
-            niblet<span className="text-blue-400">.ai</span>
-          </div>
-        </header>
-
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          <Skeleton className="h-20 w-3/4" />
-          <Skeleton className="h-16 w-2/3 ml-auto" />
-          <Skeleton className="h-20 w-3/4" />
-        </div>
-
-        <div className="p-4 border-t dark:border-gray-800">
-          <Skeleton className="h-10 w-full" />
+      <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+          <p className="mt-4 text-gray-600 dark:text-gray-300">
+            Getting your onboarding ready...
+          </p>
         </div>
       </div>
     );
@@ -522,9 +584,9 @@ const OnboardingChat = () => {
       <div className="px-4 pt-2">
         <div className="flex justify-between text-sm text-gray-500 mb-1">
           <span>Onboarding Progress</span>
-          <span>{onboardingStep}/5 completed</span>
+          <span>{onboardingStep}/6 completed</span>
         </div>
-        <Progress value={(onboardingStep / 5) * 100} className="h-2" />
+        <Progress value={(onboardingStep / 6) * 100} className="h-2" />
       </div>
 
       {/* Chat Container */}
@@ -574,12 +636,15 @@ const OnboardingChat = () => {
       {/* Input Area or Complete Button */}
       <div className="p-4 border-t dark:border-gray-800">
         {isComplete ? (
-          <Button
-            onClick={completeOnboarding}
-            className="w-full bg-blue-500 hover:bg-blue-600 text-white"
-          >
-            Start Using Niblet <ArrowRight className="ml-2 h-4 w-4" />
-          </Button>
+          <div className="text-center p-4">
+            <div className="w-16 h-16 border-4 border-green-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+            <p className="mb-4 text-lg font-semibold">
+              Setting up your profile...
+            </p>
+            <p className="text-gray-500 dark:text-gray-400">
+              You'll be redirected to your dashboard in a moment
+            </p>
+          </div>
         ) : (
           <div className="flex items-center space-x-2">
             <Input
@@ -618,4 +683,4 @@ const OnboardingChat = () => {
   );
 };
 
-export default OnboardingChat;
+export default ConversationalOnboarding;

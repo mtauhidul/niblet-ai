@@ -5,6 +5,7 @@ import { PersonalityKey } from "@/lib/assistantService";
 import { getUserProfileById } from "@/lib/auth/authService";
 import { db } from "@/lib/firebase/clientApp";
 import type { Meal } from "@/lib/firebase/models/meal";
+import type { UserProfile } from "@/lib/firebase/models/user";
 import {
   collection,
   getDocs,
@@ -14,28 +15,69 @@ import {
   Timestamp,
   where,
 } from "firebase/firestore";
-import { Plus, RefreshCw } from "lucide-react";
-import { useSession } from "next-auth/react";
+import { ChevronDown, ChevronUp, Settings } from "lucide-react";
+import { signOut, useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import AddMealModal from "./AddMealModal";
 import CaloriesStatusBar from "./CaloriesStatusBar";
 import ChatContainer from "./ChatContainer";
+import CombinedWeightCalorieChart from "./CombinedWeightCalorieChart";
 import HamburgerMenu from "./HamburgerMenu";
 import TodaysMeals from "./TodaysMeals";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./ui/alert-dialog";
 import { Button } from "./ui/button";
 import { Skeleton } from "./ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
-import WeightProgressCard from "./WeightProgressCard";
+
+interface CollapsibleSectionProps {
+  title: string;
+  children: React.ReactNode;
+  initiallyExpanded?: boolean;
+}
+
+const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
+  title,
+  children,
+  initiallyExpanded = false,
+}) => {
+  const [isExpanded, setIsExpanded] = useState(initiallyExpanded);
+
+  return (
+    <div className="border rounded-lg mb-4 overflow-hidden bg-white dark:bg-gray-800 shadow-sm">
+      <button
+        className="w-full flex justify-between items-center p-3 bg-gray-50 dark:bg-gray-700 text-left font-medium"
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        {title}
+        {isExpanded ? (
+          <ChevronUp className="h-4 w-4" />
+        ) : (
+          <ChevronDown className="h-4 w-4" />
+        )}
+      </button>
+
+      {isExpanded && (
+        <div className="p-4 animate-in slide-in-from-top-4 duration-300">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+};
 
 interface DashboardProps {
   aiPersonality?: PersonalityKey;
 }
-
-import type { UserProfile } from "@/lib/firebase/models/user";
-
-const weightLogs: any[] = []; // Define weightLogs variable
 
 const Dashboard = ({
   aiPersonality: propAiPersonality,
@@ -48,13 +90,15 @@ const Dashboard = ({
   const [aiPersonality, setAiPersonality] = useState<PersonalityKey>(
     propAiPersonality || "best-friend"
   );
-  const [activeTab, setActiveTab] = useState<"chat" | "stats">("chat");
+  const [dateRange, setDateRange] = useState<
+    "week" | "month" | "3months" | "year"
+  >("month");
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [loadingError, setLoadingError] = useState<string | null>(null);
-  const [showAddMealModal, setShowAddMealModal] = useState(false);
   const [isCalling, setIsCalling] = useState(false);
+  const [showLogoutDialog, setShowLogoutDialog] = useState(false);
 
   // Toast state tracking to prevent duplicates
   const [toastShown, setToastShown] = useState(false);
@@ -62,6 +106,7 @@ const Dashboard = ({
 
   // Keep track of the current unsubscribe function
   const unsubscribeRef = useRef<(() => void) | null>(null);
+  const chartRef = useRef<HTMLDivElement>(null);
 
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -287,24 +332,10 @@ const Dashboard = ({
     };
   }, []);
 
-  const getStartWeightFromLogs = (logs: any[]) => {
-    if (!logs || logs.length === 0) return null;
-
-    // Find the earliest log with a valid weight
-    const sortedLogs = [...logs].sort(
-      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
-    );
-
-    return sortedLogs[0]?.weight || null;
-  };
-
   // Handle meal logged from chat or any source
   const handleMealLogged = useCallback(() => {
     console.log("Meal logged, refreshing data...");
     // No need to manually refresh as Firestore listener will update automatically
-
-    // If on chat tab, switch to meals tab to show the new meal
-    setActiveTab("stats");
 
     // Show toast notification only if another one isn't already showing
     if (!toastShown) {
@@ -391,8 +422,8 @@ const Dashboard = ({
 
     // Simulate call connection delay
     setTimeout(() => {
-      toast.success("Connected to Niblet assistant");
-      // In a real implementation, this would connect to a voice call service
+      toast.success("Connected to Niblet voice assistant");
+      // In a real implementation, this would connect to a voice service
       // For now we'll just simulate with a timeout and then set back to normal
 
       setTimeout(() => {
@@ -402,22 +433,14 @@ const Dashboard = ({
     }, 2000);
   };
 
-  // Handle meal added from modal
-  const handleMealAdded = () => {
-    // This will trigger the Firestore listener to update
-    setShowAddMealModal(false);
-
-    if (!toastShown) {
-      toast.success("Meal added successfully!");
-      setToastShown(true);
-
-      if (toastTimeoutRef.current) {
-        clearTimeout(toastTimeoutRef.current);
-      }
-
-      toastTimeoutRef.current = setTimeout(() => {
-        setToastShown(false);
-      }, 3000);
+  // Handle logout
+  const handleLogout = async () => {
+    try {
+      await signOut({ callbackUrl: "/" });
+    } catch (error) {
+      console.error("Error during logout:", error);
+      // Force redirect on error
+      window.location.href = "/";
     }
   };
 
@@ -452,7 +475,7 @@ const Dashboard = ({
 
   return (
     <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-900">
-      {/* Header - Made thinner as requested */}
+      {/* Header - Keep the HamburgerMenu */}
       <header className="py-3 px-4 border-b dark:border-gray-800 flex justify-between items-center">
         <HamburgerMenu
           currentPersonality={aiPersonality}
@@ -461,18 +484,21 @@ const Dashboard = ({
         <div className="text-2xl font-bold">
           niblet<span className="text-blue-400">.ai</span>
         </div>
-        <div className="flex gap-2">
-          {/* <Button
-            size="icon"
-            variant="ghost"
-            className={`${isCalling ? "text-green-500 animate-pulse" : ""}`}
-            onClick={handlePhoneCall}
-            disabled={isCalling}
-          >
-            <Phone className="h-5 w-5" />
-          </Button> */}
-        </div>
+        <Button
+          size="icon"
+          variant="ghost"
+          onClick={() => setShowLogoutDialog(true)}
+        >
+          <Settings className="h-5 w-5" />
+        </Button>
       </header>
+
+      {/* Calories Status Bar */}
+      <CaloriesStatusBar
+        caloriesConsumed={caloriesConsumed}
+        targetCalories={targetCalories}
+        className="mx-4 my-3"
+      />
 
       {/* Error message if loading failed */}
       {loadingError && (
@@ -493,101 +519,69 @@ const Dashboard = ({
         </div>
       )}
 
-      {/* Calories Status Bar - Made thinner as requested */}
-      <CaloriesStatusBar
-        caloriesConsumed={caloriesConsumed}
-        targetCalories={targetCalories}
-        className="mx-4 my-3"
-      />
+      <div className="flex-1 overflow-y-auto p-4">
+        {/* Chat section - always expanded */}
+        <div className="mb-4 border rounded-lg shadow-sm overflow-hidden">
+          <ChatContainer
+            aiPersonality={aiPersonality}
+            threadId={userProfile?.threadId}
+            assistantId={userProfile?.assistantId}
+            onMealLogged={handleMealLogged}
+            onWeightLogged={handleWeightLogged}
+            isCalling={isCalling}
+            onCall={handlePhoneCall}
+          />
+        </div>
 
-      {/* Tab Navigation */}
-      <div className="mx-4 mb-2">
-        <Tabs
-          defaultValue="chat"
-          value={activeTab}
-          onValueChange={(value) => setActiveTab(value as "chat" | "stats")}
-        >
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="chat">Chat</TabsTrigger>
-            <TabsTrigger value="stats">Today's Meals</TabsTrigger>
-          </TabsList>
-        </Tabs>
-      </div>
+        {/* Today's Meals - collapsible */}
+        <CollapsibleSection title="Today's Meals">
+          <TodaysMeals
+            meals={todaysMeals}
+            isLoading={isRefreshing}
+            onMealDeleted={handleMealLogged}
+          />
+        </CollapsibleSection>
 
-      {/* Tab Content */}
-      <div className="flex-1 overflow-hidden mx-4">
-        {activeTab === "chat" ? (
-          <div className="h-full flex flex-col">
-            <ChatContainer
-              aiPersonality={aiPersonality}
-              threadId={userProfile?.threadId}
-              assistantId={userProfile?.assistantId}
-              onMealLogged={handleMealLogged}
-              onWeightLogged={handleWeightLogged}
-            />
-          </div>
-        ) : (
-          <div className="h-full overflow-y-auto">
-            {/* Actions row with refresh and add buttons */}
-            <div className="flex justify-between items-center mb-4">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setShowAddMealModal(true)}
-                className="flex items-center gap-1"
+        {/* Progress Chart - collapsible */}
+        <CollapsibleSection title="Progress Chart">
+          <div ref={chartRef} className="relative">
+            <CombinedWeightCalorieChart dateRange={dateRange} />
+
+            {/* Simple date range selector */}
+            <div className="mt-2 flex justify-center">
+              <Tabs
+                value={dateRange}
+                onValueChange={(value) => setDateRange(value as any)}
               >
-                <Plus className="h-4 w-4" />
-                Add Meal
-              </Button>
-
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={handleRefresh}
-                disabled={isRefreshing}
-                className="flex items-center gap-1"
-              >
-                <RefreshCw
-                  className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`}
-                />
-                {isRefreshing ? "Refreshing..." : "Refresh"}
-              </Button>
-            </div>
-
-            {/* TodaysMeals component - now without redundant title */}
-            <TodaysMeals
-              meals={todaysMeals}
-              isLoading={isRefreshing}
-              onMealDeleted={handleMealLogged}
-              showTitle={false}
-            />
-
-            {userProfile?.currentWeight && userProfile?.targetWeight && (
-              <WeightProgressCard
-                currentWeight={userProfile.currentWeight}
-                targetWeight={userProfile.targetWeight}
-                startWeight={
-                  userProfile.targetWeight || getStartWeightFromLogs(weightLogs)
-                }
-                weightLogs={weightLogs}
-              />
-            )}
-
-            <div className="py-6 text-center">
-              <Button variant="outline" onClick={() => setActiveTab("chat")}>
-                Track a new meal
-              </Button>
+                <TabsList>
+                  <TabsTrigger value="week">Week</TabsTrigger>
+                  <TabsTrigger value="month">Month</TabsTrigger>
+                  <TabsTrigger value="3months">3 Months</TabsTrigger>
+                  <TabsTrigger value="year">Year</TabsTrigger>
+                </TabsList>
+              </Tabs>
             </div>
           </div>
-        )}
+        </CollapsibleSection>
       </div>
 
-      {/* Add Meal Modal */}
-      <AddMealModal
-        open={showAddMealModal}
-        onOpenChange={setShowAddMealModal}
-        onMealAdded={handleMealAdded}
-      />
+      {/* Logout confirmation dialog */}
+      <AlertDialog open={showLogoutDialog} onOpenChange={setShowLogoutDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Log out?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to log out of your account?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleLogout}>
+              Log out
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

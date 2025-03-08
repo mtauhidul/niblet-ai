@@ -22,7 +22,6 @@ import {
   Moon,
   Shield,
   Sun,
-  Thermometer,
   User,
 } from "lucide-react";
 import { signOut, useSession } from "next-auth/react";
@@ -156,14 +155,6 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
       icon: <Home className="h-5 w-5" />,
       onClick: () => {
         router.push("/dashboard");
-        setIsOpen(false);
-      },
-    },
-    {
-      label: "Progress Charts",
-      icon: <Thermometer className="h-5 w-5" />,
-      onClick: () => {
-        router.push("/charts");
         setIsOpen(false);
       },
     },

@@ -1,6 +1,7 @@
 // app/api/auth/[...nextauth]/route.ts
 
 import NextAuth from "next-auth";
+import FacebookProvider from "next-auth/providers/facebook";
 import GoogleProvider from "next-auth/providers/google";
 
 const handler = NextAuth({
@@ -8,12 +9,15 @@ const handler = NextAuth({
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID as string,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET as string,
-      // Remove custom parameters that might be causing issues
       authorization: {
         params: {
           prompt: "select_account",
         },
       },
+    }),
+    FacebookProvider({
+      clientId: process.env.FACEBOOK_CLIENT_ID as string,
+      clientSecret: process.env.FACEBOOK_CLIENT_SECRET as string,
     }),
   ],
   pages: {

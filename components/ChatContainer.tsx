@@ -1,4 +1,4 @@
-// ChatContainer.tsx
+// components/ChatContainer.tsx
 "use client";
 
 import { Button } from "@/components/ui/button";
@@ -15,18 +15,18 @@ import { createMeal } from "@/lib/firebase/models/meal";
 import { createOrUpdateUserProfile } from "@/lib/firebase/models/user";
 import { logWeight } from "@/lib/firebase/models/weightLog";
 import { cn } from "@/lib/utils";
-import { Camera, Mic, MicOff, Send } from "lucide-react";
+import { Camera, Mic, MicOff, Phone, Send } from "lucide-react";
 import { useSession } from "next-auth/react";
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
-import { Card } from "./ui/card";
+import ReactMarkdown from "react-markdown";
 
 interface Message {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
   timestamp: Date;
-  imageUrl?: string; // Added for image support
+  imageUrl?: string;
 }
 
 interface ChatContainerProps {
@@ -35,6 +35,14 @@ interface ChatContainerProps {
   assistantId?: string;
   onMealLogged?: () => void;
   onWeightLogged?: () => void;
+  isCalling?: boolean;
+  onCall?: () => void;
+}
+
+// Format text utility
+export function formatChatText(text: string): string {
+  // Ensure 'i' is capitalized when it's a standalone word
+  return text.replace(/\b(i)\b/g, "I");
 }
 
 const ChatContainer: React.FC<ChatContainerProps> = ({
@@ -43,6 +51,8 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   assistantId: initialAssistantId,
   onMealLogged,
   onWeightLogged,
+  isCalling = false,
+  onCall,
 }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
@@ -66,23 +76,14 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const messageEndRef = useRef<HTMLDivElement | null>(null);
-  const { data: session } = useSession();
-
-  // Predefined prompts
-  const predefinedPrompts = [
-    "Log a meal",
-    "Estimate calories for a dish",
-    "Get a recipe recommendation",
-    "Log my weight",
-    "Plan a meal",
-    "Suggest a healthy dinner",
-  ];
+  const { data: session, status } = useSession();
 
   // Initialize assistant and thread - only once
   useEffect(() => {
     // Skip initialization if already done or if threadId and assistantId already exist
     if (isInitialized || (initialThreadId && initialAssistantId)) {
       setIsInitialized(true);
+      loadHistoricalMessages();
       return;
     }
 
@@ -143,7 +144,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
                 id: "welcome",
                 role: "assistant",
                 content:
-                  "Hi there! I'm Niblet, your personal nutrition assistant. How can I help you today?",
+                  "HI, I'm Nibble! I'll be helping you set up your goal and kick off your calorie-tracking journey. How can I help you today?",
                 timestamp: new Date(),
               },
             ]);
@@ -151,47 +152,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
 
           setIsTyping(false);
         } else if (assistantId) {
-          // Load most recent message if we already have a thread
-          setIsTyping(true);
-
-          try {
-            // Run the assistant with an empty message to continue the conversation
-            const assistantMessages = await runAssistant(
-              threadId,
-              assistantId,
-              aiPersonality,
-              handleToolCalls
-            );
-
-            if (assistantMessages && assistantMessages.length > 0) {
-              // Only use the most recent message for existing threads
-              const latestMessage =
-                assistantMessages[assistantMessages.length - 1];
-
-              setMessages([
-                {
-                  id: latestMessage.id,
-                  role: "assistant",
-                  content: latestMessage.content,
-                  timestamp: latestMessage.createdAt,
-                },
-              ]);
-            }
-          } catch (error) {
-            console.error("Error loading messages:", error);
-            // If there's an error, still show a fallback message
-            setMessages([
-              {
-                id: "welcome",
-                role: "assistant",
-                content:
-                  "Welcome back! How can I help with your nutrition today?",
-                timestamp: new Date(),
-              },
-            ]);
-          }
-
-          setIsTyping(false);
+          loadHistoricalMessages();
         }
       } catch (error) {
         console.error("Failed to initialize chat:", error);
@@ -216,6 +177,72 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
     isInitialized,
   ]);
 
+  // Load historical messages
+  const loadHistoricalMessages = async () => {
+    if (!threadId) return;
+
+    try {
+      setIsTyping(true);
+      // Fetch historical messages for this thread
+      const response = await fetch(
+        `/api/assistant/messages?threadId=${threadId}`
+      );
+
+      if (response.ok) {
+        const historicalMessages = await response.json();
+        if (
+          Array.isArray(historicalMessages) &&
+          historicalMessages.length > 0
+        ) {
+          setMessages(historicalMessages);
+        } else {
+          try {
+            // If no messages are found, run the assistant to get a greeting
+            if (assistantId) {
+              const assistantMessages = await runAssistant(
+                threadId,
+                assistantId,
+                aiPersonality,
+                handleToolCalls
+              );
+
+              if (assistantMessages && assistantMessages.length > 0) {
+                const latestMessage =
+                  assistantMessages[assistantMessages.length - 1];
+                setMessages([
+                  {
+                    id: latestMessage.id,
+                    role: "assistant",
+                    content: latestMessage.content,
+                    timestamp: latestMessage.createdAt,
+                  },
+                ]);
+              }
+            }
+          } catch (e) {
+            console.error("Error getting initial greeting:", e);
+            // Fallback message
+            setMessages([
+              {
+                id: "welcome",
+                role: "assistant",
+                content:
+                  "Welcome back! How can I help with your nutrition today?",
+                timestamp: new Date(),
+              },
+            ]);
+          }
+        }
+      } else {
+        console.error("Failed to load chat history");
+      }
+    } catch (error) {
+      console.error("Error loading chat history:", error);
+    } finally {
+      setIsTyping(false);
+    }
+  };
+
   // Handle tool calls from the assistant
   const handleToolCalls = async (toolName: string, toolArgs: any) => {
     if (!session?.user?.id) {
@@ -224,7 +251,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
 
     try {
       if (toolName === "log_meal") {
-        // Create meal in database
+        // Create meal in database without confirmation
         const mealData = {
           userId: session.user.id,
           name: toolArgs.meal_name,
@@ -235,6 +262,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
           mealType: toolArgs.meal_type,
           items: toolArgs.items || [],
           date: new Date(),
+          canEdit: true, // Add flag to allow editing
         };
 
         const meal = await createMeal(mealData);
@@ -297,9 +325,6 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   }, [messages, isTyping]);
 
   // Handle file select for image upload
-  // Update these image-related functions in ChatContainer.tsx
-
-  // Handle file select for image upload
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -344,8 +369,8 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
       const userMessage: Message = {
         id: `user-${Date.now()}`,
         role: "user",
-        // Change this line - don't use "[Image uploaded]" text when sending image to thread
-        content: "", // Empty string instead of "[Image uploaded]"
+        // Empty string instead of "[Image uploaded]"
+        content: "",
         timestamp: new Date(),
         imageUrl: data.imageUrl,
       };
@@ -355,10 +380,11 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
       // If we have thread and assistant IDs, send the image to the assistant
       if (threadId && assistantId) {
         setIsTyping(true);
-        // Add the image to the thread with minimal text
+
+        // Add image to the thread with instruction to make assumptions
         const messageAdded = await addMessageToThread(
           threadId,
-          "", // Send empty text with the image to avoid redundant text
+          "Analyze this food image and make reasonable assumptions about its contents. Log it directly without asking for confirmation, clearly stating what you've assumed.",
           data.imageUrl
         );
 
@@ -412,11 +438,14 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   const handleSendMessage = async () => {
     if (!inputValue.trim() || !threadId || !assistantId || isTyping) return;
 
+    // Format text to ensure 'i' is capitalized
+    const formattedText = formatChatText(inputValue);
+
     // Add user message to UI
     const userMessage: Message = {
       id: `user-${Date.now()}`,
       role: "user",
-      content: inputValue,
+      content: formattedText,
       timestamp: new Date(),
     };
     setMessages((prev) => [...prev, userMessage]);
@@ -428,7 +457,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
     try {
       // Send message to thread
       setIsTyping(true);
-      const messageAdded = await addMessageToThread(threadId, inputValue);
+      const messageAdded = await addMessageToThread(threadId, formattedText);
 
       if (!messageAdded) {
         throw new Error("Failed to send message");
@@ -474,11 +503,6 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
     }
   };
 
-  // Handle predefined prompt selection
-  const handlePromptClick = (prompt: string) => {
-    setInputValue(prompt);
-  };
-
   // Voice recording functions
   const startRecording = async () => {
     try {
@@ -506,8 +530,11 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
             throw new Error("Failed to transcribe audio");
           }
 
+          // Format the transcribed text
+          const formattedText = formatChatText(transcribedText);
+
           // Add transcribed text to input
-          setInputValue(transcribedText);
+          setInputValue(formattedText);
 
           // If we have the thread and assistant IDs, automatically send the message
           if (threadId && assistantId) {
@@ -515,7 +542,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
             const userMessage: Message = {
               id: `user-${Date.now()}`,
               role: "user",
-              content: transcribedText,
+              content: formattedText,
               timestamp: new Date(),
             };
 
@@ -524,7 +551,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
             // Send message to thread
             const messageAdded = await addMessageToThread(
               threadId,
-              transcribedText
+              formattedText
             );
 
             if (!messageAdded) {
@@ -600,6 +627,13 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
     }
   };
 
+  // Handle phone call
+  const handlePhoneCall = () => {
+    if (onCall) {
+      onCall();
+    }
+  };
+
   return (
     <div className="flex flex-col h-full">
       {/* Hidden file input for image upload */}
@@ -627,20 +661,10 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
           </div>
         )}
 
-        {/* Initial prompt if no messages */}
-        {messages.length === 0 && !isTyping && !error && (
-          <Card className="p-4">
-            <p>
-              What would you like to do? Log a meal, estimate calories for a
-              dish, or get a recipe recommendation.
-            </p>
-          </Card>
-        )}
+        {/* Display messages */}
         {messages.map((msg) => {
           // Determine if this is an image-only message
-          const isImageOnly =
-            msg.imageUrl &&
-            (!msg.content || msg.content === "[Image uploaded]");
+          const isImageOnly = msg.imageUrl && !msg.content;
 
           if (isImageOnly) {
             // Special container just for images
@@ -689,8 +713,14 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
                   : "mx-auto bg-yellow-100 dark:bg-yellow-900 text-center"
               )}
             >
-              {/* Regular message content */}
-              <div>{msg.content}</div>
+              {/* Regular message content with proper markdown rendering for assistant */}
+              {msg.role === "assistant" ? (
+                <div className="prose dark:prose-invert prose-sm max-w-none">
+                  <ReactMarkdown>{msg.content}</ReactMarkdown>
+                </div>
+              ) : (
+                <div>{msg.content}</div>
+              )}
 
               {/* Display image if present in a regular message */}
               {msg.imageUrl && (
@@ -733,21 +763,8 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
         <div ref={messageEndRef} />
       </div>
 
-      {/* Quick Prompts */}
-      <div className="p-2 overflow-x-auto whitespace-nowrap">
-        {predefinedPrompts.map((prompt, index) => (
-          <button
-            key={index}
-            className="inline-block mr-2 px-3 py-1 bg-gray-200 dark:bg-gray-700 rounded-full text-sm"
-            onClick={() => handlePromptClick(prompt)}
-          >
-            {prompt}
-          </button>
-        ))}
-      </div>
-
-      {/* Input Area */}
-      <div className="p-4 border-t dark:border-gray-800">
+      {/* Input Area - positioned at the bottom */}
+      <div className="p-4 border-t dark:border-gray-800 sticky bottom-0 bg-gray-50 dark:bg-gray-900">
         <div className="flex items-center space-x-2">
           <Button
             size="icon"
@@ -767,6 +784,15 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
             className="flex-1"
             disabled={isTyping || isUploading}
           />
+          <Button
+            size="icon"
+            variant="outline"
+            onClick={handlePhoneCall}
+            disabled={isCalling || isTyping}
+            className={isCalling ? "text-green-500 animate-pulse" : ""}
+          >
+            <Phone className="h-5 w-5" />
+          </Button>
           <Button
             size="icon"
             variant={isRecording ? "destructive" : "outline"}

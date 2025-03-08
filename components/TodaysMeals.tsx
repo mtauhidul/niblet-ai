@@ -1,8 +1,7 @@
 // components/TodaysMeals.tsx
 "use client";
 
-import AddMealModal from "@/components/AddMealModal";
-import type { Meal } from "@/lib/firebase/models/meal";
+import type { Meal as BaseMeal } from "@/lib/firebase/models/meal";
 import { Edit, Trash } from "lucide-react";
 import { useState } from "react";
 import EditMealModal from "./EditMealModal";
@@ -20,6 +19,10 @@ import {
 import { Button } from "./ui/button";
 import { Skeleton } from "./ui/skeleton";
 
+interface Meal extends BaseMeal {
+  canEdit?: boolean;
+}
+
 interface TodaysMealsProps {
   meals: Meal[];
   isLoading?: boolean;
@@ -35,7 +38,6 @@ const TodaysMeals = ({
 }: TodaysMealsProps) => {
   const [deletingMealId, setDeletingMealId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [showAddMealModal, setShowAddMealModal] = useState(false);
   const [editingMeal, setEditingMeal] = useState<Meal | null>(null);
   const [showEditMealModal, setShowEditMealModal] = useState(false);
 
@@ -43,12 +45,18 @@ const TodaysMeals = ({
   const mealsByType: Record<string, Meal[]> = {};
 
   // Add meals to their respective type groups
-  meals.forEach((meal) => {
+  meals.forEach((meal, index) => {
     const type = meal.mealType || "Other";
     if (!mealsByType[type]) {
       mealsByType[type] = [];
     }
-    mealsByType[type].push(meal);
+
+    // Add canEdit flag - only first 3 meals can be edited
+    const canEdit = index < 3;
+    mealsByType[type].push({
+      ...meal,
+      canEdit,
+    });
   });
 
   // Sort meal types in logical order
@@ -95,13 +103,6 @@ const TodaysMeals = ({
     }
   };
 
-  // Handle meal added from modal
-  const handleMealAdded = () => {
-    if (onMealDeleted) {
-      onMealDeleted(); // Reuse the same callback for consistency
-    }
-  };
-
   // Calculate daily totals
   const totalCalories = meals.reduce(
     (sum, meal) => sum + (meal.calories || 0),
@@ -130,15 +131,8 @@ const TodaysMeals = ({
       <div className="text-center py-4">
         {showTitle && <h3 className="font-bold mb-2">Today's Meals</h3>}
         <p className="text-gray-500 dark:text-gray-400 mb-4">
-          No meals logged today. Start tracking your meals!
+          No meals logged today. Try logging meals through chat!
         </p>
-
-        {/* Add Meal Modal */}
-        <AddMealModal
-          open={showAddMealModal}
-          onOpenChange={setShowAddMealModal}
-          onMealAdded={handleMealAdded}
-        />
       </div>
     );
   }
@@ -213,27 +207,29 @@ const TodaysMeals = ({
                   {meal.carbs ? `C: ${meal.carbs}g` : ""}{" "}
                   {meal.fat ? `F: ${meal.fat}g` : ""}
                 </div>
-                <div className="flex gap-1 mt-1">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 w-6 p-0"
-                    onClick={() => {
-                      setEditingMeal(meal);
-                      setShowEditMealModal(true);
-                    }}
-                  >
-                    <Edit className="h-3 w-3" />
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 w-6 p-0"
-                    onClick={() => meal.id && setDeletingMealId(meal.id)}
-                  >
-                    <Trash className="h-3 w-3" />
-                  </Button>
-                </div>
+                {meal.canEdit && (
+                  <div className="flex gap-1 mt-1">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 w-6 p-0"
+                      onClick={() => {
+                        setEditingMeal(meal);
+                        setShowEditMealModal(true);
+                      }}
+                    >
+                      <Edit className="h-3 w-3" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 w-6 p-0"
+                      onClick={() => meal.id && setDeletingMealId(meal.id)}
+                    >
+                      <Trash className="h-3 w-3" />
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
           ))}
@@ -275,6 +271,7 @@ const TodaysMeals = ({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
       {/* Edit Meal Modal */}
       <EditMealModal
         open={showEditMealModal}

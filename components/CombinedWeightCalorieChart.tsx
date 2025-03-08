@@ -1,4 +1,5 @@
 // components/CombinedWeightCalorieChart.tsx
+import { Expand, Minimize2 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import {
@@ -14,6 +15,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { Button } from "./ui/button";
 
 interface ChartDataPoint {
   date: string;
@@ -42,7 +44,59 @@ const CombinedWeightCalorieChart = ({ dateRange = "month" }) => {
   const [targets, setTargets] = useState<TargetValues>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isFullScreen, setIsFullScreen] = useState(false);
   const { data: session } = useSession();
+
+  // Detect device orientation change
+  useEffect(() => {
+    const handleOrientationChange = () => {
+      // Check if device is in landscape mode
+      if (window.matchMedia) {
+        const isLandscape = window.matchMedia(
+          "(orientation: landscape)"
+        ).matches;
+        setIsFullScreen(isLandscape);
+      }
+    };
+
+    // Initial check
+    handleOrientationChange();
+
+    // Add event listeners
+    window.addEventListener("orientationchange", handleOrientationChange);
+    if (window.matchMedia) {
+      window
+        .matchMedia("(orientation: landscape)")
+        .addEventListener("change", handleOrientationChange);
+    }
+
+    return () => {
+      window.removeEventListener("orientationchange", handleOrientationChange);
+      if (window.matchMedia) {
+        window
+          .matchMedia("(orientation: landscape)")
+          .removeEventListener("change", handleOrientationChange);
+      }
+    };
+  }, []);
+
+  // When entering fullscreen, set body overflow to hidden
+  useEffect(() => {
+    if (isFullScreen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [isFullScreen]);
+
+  // Toggle fullscreen mode manually
+  const toggleFullScreen = () => {
+    setIsFullScreen(!isFullScreen);
+  };
 
   useEffect(() => {
     const fetchChartData = async () => {
@@ -241,8 +295,42 @@ const CombinedWeightCalorieChart = ({ dateRange = "month" }) => {
   // Get target values from data
   const calorieTarget = chartData[0]?.caloriesTarget || 2000;
 
+  // Wrapper for the chart content
+  const ChartWrapper = isFullScreen
+    ? ({ children }: { children: React.ReactNode }) => (
+        <div className="fixed inset-0 z-50 bg-white dark:bg-gray-900 p-4 flex flex-col">
+          <div className="flex justify-between items-center mb-2">
+            <h3 className="font-bold">Weight and Calories Over Time</h3>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={toggleFullScreen}
+              className="self-end"
+            >
+              <Minimize2 className="h-4 w-4 mr-2" />
+              Exit Fullscreen
+            </Button>
+          </div>
+          <div className="flex-1">{children}</div>
+        </div>
+      )
+    : ({ children }: { children: React.ReactNode }) => (
+        <div className="relative">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={toggleFullScreen}
+            className="absolute top-0 right-0 z-10"
+          >
+            <Expand className="h-4 w-4 mr-2" />
+            Fullscreen
+          </Button>
+          <div className="h-64 md:h-96 w-full">{children}</div>
+        </div>
+      );
+
   return (
-    <div className="h-64 md:h-96 w-full">
+    <ChartWrapper>
       <ResponsiveContainer width="100%" height="100%">
         <ComposedChart
           data={chartData}
@@ -342,7 +430,7 @@ const CombinedWeightCalorieChart = ({ dateRange = "month" }) => {
           )}
         </ComposedChart>
       </ResponsiveContainer>
-    </div>
+    </ChartWrapper>
   );
 };
 

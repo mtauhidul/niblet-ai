@@ -38,6 +38,7 @@ export interface UserProfile {
   };
   threadId?: string;
   assistantId?: string;
+  onboardingThreadId?: string;
   onboardingCompleted?: boolean;
   createdAt?: any;
   updatedAt?: any;
