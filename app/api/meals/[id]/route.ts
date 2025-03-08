@@ -3,11 +3,8 @@ import { deleteMeal, getMealById } from "@/lib/firebase/models/meal";
 import { getToken } from "next-auth/jwt";
 import { NextRequest, NextResponse } from "next/server";
 
-// Use the exact pattern Next.js expects
-export async function DELETE(
-  request: NextRequest,
-  context: { params: { id: string } }
-) {
+// Without type annotations on the second parameter
+export async function DELETE(request: NextRequest, context: any) {
   try {
     // Get session token for authentication
     const token = await getToken({ req: request });
