@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from "next/server";
 // Use the exact pattern Next.js expects
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: { id: string } }
 ) {
   try {
     // Get session token for authentication
@@ -16,7 +16,7 @@ export async function DELETE(
       return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     }
 
-    const mealId = params.id;
+    const mealId = context.params.id;
     if (!mealId) {
       return NextResponse.json(
         { message: "Meal ID is required" },
