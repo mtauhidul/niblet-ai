@@ -1,5 +1,6 @@
 // lib/assistantService.ts
 import OpenAI from "openai";
+import runStateManager from "./runStateManager";
 
 // Define personality types
 export type PersonalityKey =
@@ -118,7 +119,6 @@ export const getOrCreateAssistant = async (
       }
     }
 
-    // Create a new assistant with retry
     // Create a new assistant with retry
     const assistant = await retry(() =>
       openai.beta.assistants.create({
@@ -338,9 +338,6 @@ export const createThread = async (): Promise<string | null> => {
   }
 };
 
-// Add message to thread with retry
-// Update this function in assistantService.ts to properly handle images
-
 // Add message to thread with retry and image support
 export const addMessageToThread = async (
   threadId: string,
@@ -351,6 +348,27 @@ export const addMessageToThread = async (
   if (!openai) return false;
 
   try {
+    // Check if there's an active run for this thread using the run state manager
+    if (runStateManager.hasActiveRun(threadId)) {
+      console.log(
+        `Thread ${threadId} has an active run. Waiting for completion...`
+      );
+
+      // Wait for run completion with timeout
+      const completed = await runStateManager.waitForRunCompletion(
+        threadId,
+        15000
+      );
+
+      if (!completed) {
+        console.warn(
+          `Timed out waiting for run to complete on thread ${threadId}`
+        );
+        // Force reset the state after timeout
+        runStateManager.setRunInactive(threadId);
+      }
+    }
+
     console.log(
       `Adding message to thread ${threadId}, has image: ${!!imageUrl}`
     );
@@ -397,13 +415,166 @@ export const addMessageToThread = async (
           imageUrl
         );
       }
+
+      // Handle the specific error about active runs
+      if (
+        error.status === 400 &&
+        error.message &&
+        error.message.includes("while a run") &&
+        error.message.includes("is active")
+      ) {
+        // Update thread state to reflect active run using the run state manager
+        const runId = runStateManager.extractRunIdFromError(error.message);
+        if (runId) {
+          runStateManager.setRunActive(threadId, runId);
+          console.log(`Updated thread state, active run: ${runId}`);
+        }
+
+        // Retry once after a delay
+        console.log("Active run detected, waiting and retrying once...");
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+
+        try {
+          // Try again after waiting
+          if (imageUrl) {
+            await openai.beta.threads.messages.create(threadId, {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: message || "Here's an image.",
+                },
+                {
+                  type: "image_url",
+                  image_url: {
+                    url: imageUrl,
+                  },
+                },
+              ],
+            });
+          } else {
+            await openai.beta.threads.messages.create(threadId, {
+              role: "user",
+              content: message,
+            });
+          }
+          console.log("Message added successfully on retry");
+          return true;
+        } catch (retryError) {
+          console.error("Failed to add message on retry:", retryError);
+        }
+      }
     }
 
     return false;
   }
 };
 
-// Function to handle retries for run completion
+// Update the run assistant function to manage run state
+export const runAssistant = async (
+  threadId: string,
+  assistantId: string,
+  personality: PersonalityKey = "best-friend",
+  onToolCall?: (toolName: string, toolArgs: any) => Promise<any>
+): Promise<AssistantMessage[]> => {
+  const openai = getOpenAIClient();
+  if (!openai) return [];
+
+  try {
+    console.log(`Running assistant ${assistantId} on thread ${threadId}`);
+
+    // Wait if there's already an active run
+    if (runStateManager.hasActiveRun(threadId)) {
+      console.log(
+        `Thread ${threadId} already has an active run. Waiting for completion...`
+      );
+      const completed = await runStateManager.waitForRunCompletion(threadId);
+      if (!completed) {
+        console.warn(
+          "Failed to wait for existing run to complete, continuing anyway"
+        );
+        runStateManager.setRunInactive(threadId);
+      }
+    }
+
+    // Implement retry for creating run
+    const retry = async <T>(
+      fn: () => Promise<T>,
+      retries = 3,
+      delay = 1000
+    ): Promise<T> => {
+      try {
+        return await fn();
+      } catch (error) {
+        if (retries <= 0) throw error;
+        console.warn(
+          `Operation failed, retrying... (${retries} attempts left)`
+        );
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        return retry(fn, retries - 1, delay * 1.5);
+      }
+    };
+
+    const run = await retry(() =>
+      openai.beta.threads.runs.create(threadId, {
+        assistant_id: assistantId,
+        temperature: personalities[personality].temperature,
+      })
+    );
+
+    console.log(`Created run ${run.id}, waiting for completion...`);
+
+    // Update run state with the manager
+    runStateManager.setRunActive(threadId, run.id);
+
+    // Wait for run completion with error handling and retries
+    const runStatus = await waitForRunCompletion(
+      openai,
+      threadId,
+      run.id,
+      10,
+      1000,
+      onToolCall
+    );
+
+    // Update run state when complete
+    runStateManager.setRunInactive(threadId);
+
+    if (runStatus.status !== "completed") {
+      console.error(`Run ended with status: ${runStatus.status}`);
+      throw new Error(`Run failed with status: ${runStatus.status}`);
+    }
+
+    console.log("Run completed successfully, fetching messages");
+
+    // Get messages after completion
+    const messages = await retry(() =>
+      openai.beta.threads.messages.list(threadId, {
+        order: "asc",
+        limit: 100,
+      })
+    );
+
+    return messages.data
+      .filter((msg) => msg.role === "assistant")
+      .map((msg) => ({
+        id: msg.id,
+        content:
+          msg.content[0]?.type === "text" ? msg.content[0].text.value : "",
+        createdAt: new Date(msg.created_at * 1000),
+      }))
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  } catch (error) {
+    console.error("Error running assistant:", error);
+
+    // Reset run state on error
+    runStateManager.setRunInactive(threadId);
+
+    return [];
+  }
+};
+
+// Update the waitForRunCompletion function to maintain thread state
 const waitForRunCompletion = async (
   openai: OpenAI,
   threadId: string,
@@ -419,11 +590,16 @@ const waitForRunCompletion = async (
     try {
       runStatus = await openai.beta.threads.runs.retrieve(threadId, runId);
 
+      // Update run state timestamp
+      runStateManager.updateRunActivity(threadId);
+
       if (
         ["completed", "failed", "cancelled", "expired"].includes(
           runStatus.status
         )
       ) {
+        // Mark run as completed
+        runStateManager.setRunInactive(threadId);
         return runStatus;
       }
 
@@ -482,92 +658,19 @@ const waitForRunCompletion = async (
         retriesCount++;
       } else {
         console.error("Error in run status polling:", error);
+
+        // Reset run state on error
+        runStateManager.setRunInactive(threadId);
+
         throw error;
       }
     }
   }
 
+  // Reset run state after timeout
+  runStateManager.setRunInactive(threadId);
+
   throw new Error(`Run did not complete within ${maxRetries} retries`);
-};
-
-// Run assistant and get responses with improved error handling
-export const runAssistant = async (
-  threadId: string,
-  assistantId: string,
-  personality: PersonalityKey = "best-friend",
-  onToolCall?: (toolName: string, toolArgs: any) => Promise<any>
-): Promise<AssistantMessage[]> => {
-  const openai = getOpenAIClient();
-  if (!openai) return [];
-
-  try {
-    console.log(`Running assistant ${assistantId} on thread ${threadId}`);
-
-    // Implement retry for creating run
-    const retry = async <T>(
-      fn: () => Promise<T>,
-      retries = 3,
-      delay = 1000
-    ): Promise<T> => {
-      try {
-        return await fn();
-      } catch (error) {
-        if (retries <= 0) throw error;
-        console.warn(
-          `Operation failed, retrying... (${retries} attempts left)`
-        );
-        await new Promise((resolve) => setTimeout(resolve, delay));
-        return retry(fn, retries - 1, delay * 1.5);
-      }
-    };
-
-    const run = await retry(() =>
-      openai.beta.threads.runs.create(threadId, {
-        assistant_id: assistantId,
-        temperature: personalities[personality].temperature,
-      })
-    );
-
-    console.log(`Created run ${run.id}, waiting for completion...`);
-
-    // Wait for run completion with error handling and retries
-    const runStatus = await waitForRunCompletion(
-      openai,
-      threadId,
-      run.id,
-      10,
-      1000,
-      onToolCall
-    );
-
-    if (runStatus.status !== "completed") {
-      console.error(`Run ended with status: ${runStatus.status}`);
-      throw new Error(`Run failed with status: ${runStatus.status}`);
-    }
-
-    console.log("Run completed successfully, fetching messages");
-
-    // Get messages after completion
-    const messages = await retry(() =>
-      openai.beta.threads.messages.list(threadId, {
-        order: "asc",
-        limit: 100,
-      })
-    );
-
-    return messages.data
-      .filter((msg) => msg.role === "assistant")
-      .map((msg) => ({
-        id: msg.id,
-        content:
-          msg.content[0]?.type === "text" ? msg.content[0].text.value : "",
-        createdAt: new Date(msg.created_at * 1000),
-      }))
-      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
-  } catch (error) {
-    console.error("Error running assistant:", error);
-    return [];
-  }
 };
 
 // Transcribe audio with retry mechanism

@@ -1,5 +1,4 @@
-// components/ChatContainer.tsx
-"use client";
+// Updates to components/ChatContainer.tsx
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,6 +38,9 @@ interface ChatContainerProps {
   onCall?: () => void;
 }
 
+// Create a message cache to persist messages between route navigations
+const messageCache = new Map<string, Message[]>();
+
 // Format text utility
 export function formatChatText(text: string): string {
   // Ensure 'i' is capitalized when it's a standalone word
@@ -77,6 +79,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
 
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const { data: session, status } = useSession();
+  const processInProgress = useRef<boolean>(false); // Use a ref to track async operations
 
   // Initialize assistant and thread - only once
   useEffect(() => {
@@ -129,25 +132,35 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
             const latestMessage =
               assistantMessages[assistantMessages.length - 1];
 
-            setMessages([
+            const initialMessages = [
               {
                 id: latestMessage.id,
-                role: "assistant",
+                role: "assistant" as const,
                 content: latestMessage.content,
                 timestamp: latestMessage.createdAt,
               },
-            ]);
+            ];
+
+            setMessages(initialMessages);
+
+            // Cache the messages
+            messageCache.set(newThreadId, initialMessages);
           } else {
             // Fallback welcome message if assistant response fails
-            setMessages([
+            const fallbackMessages: Message[] = [
               {
                 id: "welcome",
                 role: "assistant",
                 content:
-                  "HI, I'm Nibble! I'll be helping you set up your goal and kick off your calorie-tracking journey. How can I help you today?",
+                  "Hi, I'm Nibble! I'll be helping you set up your goal and kick off your calorie-tracking journey. How can I help you today?",
                 timestamp: new Date(),
               },
-            ]);
+            ];
+
+            setMessages(fallbackMessages);
+
+            // Cache the fallback messages
+            messageCache.set(newThreadId, fallbackMessages);
           }
 
           setIsTyping(false);
@@ -182,6 +195,14 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
     if (!threadId) return;
 
     try {
+      // First check if we have cached messages
+      const cachedMessages = messageCache.get(threadId);
+      if (cachedMessages && cachedMessages.length > 0) {
+        console.log(`Using ${cachedMessages.length} cached messages`);
+        setMessages(cachedMessages);
+        return;
+      }
+
       setIsTyping(true);
       // Fetch historical messages for this thread
       const response = await fetch(
@@ -195,6 +216,9 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
           historicalMessages.length > 0
         ) {
           setMessages(historicalMessages);
+
+          // Cache the fetched messages
+          messageCache.set(threadId, historicalMessages);
         } else {
           try {
             // If no messages are found, run the assistant to get a greeting
@@ -209,20 +233,26 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
               if (assistantMessages && assistantMessages.length > 0) {
                 const latestMessage =
                   assistantMessages[assistantMessages.length - 1];
-                setMessages([
+
+                const greetingMessages: Message[] = [
                   {
                     id: latestMessage.id,
                     role: "assistant",
                     content: latestMessage.content,
                     timestamp: latestMessage.createdAt,
                   },
-                ]);
+                ];
+
+                setMessages(greetingMessages);
+
+                // Cache the greeting messages
+                messageCache.set(threadId, greetingMessages);
               }
             }
           } catch (e) {
             console.error("Error getting initial greeting:", e);
             // Fallback message
-            setMessages([
+            const fallbackMessages: Message[] = [
               {
                 id: "welcome",
                 role: "assistant",
@@ -230,7 +260,12 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
                   "Welcome back! How can I help with your nutrition today?",
                 timestamp: new Date(),
               },
-            ]);
+            ];
+
+            setMessages(fallbackMessages);
+
+            // Cache the fallback messages
+            messageCache.set(threadId, fallbackMessages);
           }
         }
       } else {
@@ -329,6 +364,13 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Prevent duplicate submissions
+    if (processInProgress.current) {
+      console.log("Process already in progress, skipping");
+      return;
+    }
+
+    processInProgress.current = true;
     setIsUploading(true);
     setUploadError(null);
 
@@ -337,6 +379,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
       if (!file.type.startsWith("image/")) {
         setUploadError("Please select an image file");
         setIsUploading(false);
+        processInProgress.current = false;
         return;
       }
 
@@ -345,6 +388,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
       if (file.size > MAX_FILE_SIZE) {
         setUploadError("Image must be less than 5MB");
         setIsUploading(false);
+        processInProgress.current = false;
         return;
       }
 
@@ -368,53 +412,73 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
       // Add image message to chat
       const userMessage: Message = {
         id: `user-${Date.now()}`,
-        role: "user",
         // Empty string instead of "[Image uploaded]"
         content: "",
+        role: "user",
         timestamp: new Date(),
         imageUrl: data.imageUrl,
       };
 
-      setMessages((prev) => [...prev, userMessage]);
+      // Update local messages
+      const updatedMessages = [...messages, userMessage];
+      setMessages(updatedMessages);
+
+      // Update cache
+      if (threadId) {
+        messageCache.set(threadId, updatedMessages);
+      }
 
       // If we have thread and assistant IDs, send the image to the assistant
       if (threadId && assistantId) {
         setIsTyping(true);
 
-        // Add image to the thread with instruction to make assumptions
-        const messageAdded = await addMessageToThread(
-          threadId,
-          "Analyze this food image and make reasonable assumptions about its contents. Log it directly without asking for confirmation, clearly stating what you've assumed.",
-          data.imageUrl
-        );
+        try {
+          // Add image to the thread with instruction to make assumptions
+          const messageAdded = await addMessageToThread(
+            threadId,
+            "Analyze this food image and make reasonable assumptions about its contents. Log it directly without asking for confirmation, clearly stating what you've assumed.",
+            data.imageUrl
+          );
 
-        if (!messageAdded) {
-          throw new Error("Failed to send image to assistant");
+          if (!messageAdded) {
+            throw new Error("Failed to send image to assistant");
+          }
+
+          // Run the assistant to get a response about the image
+          const assistantMessages = await runAssistant(
+            threadId,
+            assistantId,
+            aiPersonality,
+            handleToolCalls
+          );
+
+          if (assistantMessages && assistantMessages.length > 0) {
+            // Get the latest message
+            const latestMessage =
+              assistantMessages[assistantMessages.length - 1];
+
+            // Add assistant's response to messages
+            const assistantMessage: Message = {
+              id: latestMessage.id,
+              role: "assistant",
+              content: latestMessage.content,
+              timestamp: latestMessage.createdAt,
+            };
+
+            // Update messages and cache
+            const finalMessages = [...updatedMessages, assistantMessage];
+            setMessages(finalMessages);
+
+            if (threadId) {
+              messageCache.set(threadId, finalMessages);
+            }
+          }
+        } catch (error) {
+          console.error("Error processing image with assistant:", error);
+          setError("Failed to process the image. Please try again.");
+        } finally {
+          setIsTyping(false);
         }
-
-        // Run the assistant to get a response about the image
-        const assistantMessages = await runAssistant(
-          threadId,
-          assistantId,
-          aiPersonality,
-          handleToolCalls
-        );
-
-        if (assistantMessages && assistantMessages.length > 0) {
-          // Get the latest message
-          const latestMessage = assistantMessages[assistantMessages.length - 1];
-
-          // Add assistant's response to messages
-          const assistantMessage: Message = {
-            id: latestMessage.id,
-            role: "assistant",
-            content: latestMessage.content,
-            timestamp: latestMessage.createdAt,
-          };
-
-          setMessages((prev) => [...prev, assistantMessage]);
-        }
-        setIsTyping(false);
       }
     } catch (error) {
       console.error("Error uploading image:", error);
@@ -426,6 +490,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
+      processInProgress.current = false;
     }
   };
 
@@ -438,6 +503,14 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   const handleSendMessage = async () => {
     if (!inputValue.trim() || !threadId || !assistantId || isTyping) return;
 
+    // Prevent duplicate submissions
+    if (processInProgress.current) {
+      console.log("Process already in progress, skipping");
+      return;
+    }
+
+    processInProgress.current = true;
+
     // Format text to ensure 'i' is capitalized
     const formattedText = formatChatText(inputValue);
 
@@ -448,7 +521,14 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
       content: formattedText,
       timestamp: new Date(),
     };
-    setMessages((prev) => [...prev, userMessage]);
+
+    // Update messages and cache
+    const updatedMessages = [...messages, userMessage];
+    setMessages(updatedMessages);
+
+    if (threadId) {
+      messageCache.set(threadId, updatedMessages);
+    }
 
     // Clear input
     setInputValue("");
@@ -457,10 +537,31 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
     try {
       // Send message to thread
       setIsTyping(true);
-      const messageAdded = await addMessageToThread(threadId, formattedText);
+
+      // Try sending message, with retry
+      let messageAdded = false;
+      let retryCount = 0;
+      const maxRetries = 3;
+
+      while (!messageAdded && retryCount < maxRetries) {
+        try {
+          messageAdded = await addMessageToThread(threadId, formattedText);
+          if (!messageAdded) {
+            retryCount++;
+            console.log(
+              `Failed to send message, retry ${retryCount}/${maxRetries}`
+            );
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+          }
+        } catch (sendError) {
+          retryCount++;
+          console.error("Error sending message:", sendError);
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+        }
+      }
 
       if (!messageAdded) {
-        throw new Error("Failed to send message");
+        throw new Error("Failed to send message after multiple attempts");
       }
 
       // Run the assistant
@@ -483,7 +584,13 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
           timestamp: latestMessage.createdAt,
         };
 
-        setMessages((prev) => [...prev, assistantMessage]);
+        // Update messages and cache
+        const finalMessages = [...updatedMessages, assistantMessage];
+        setMessages(finalMessages);
+
+        if (threadId) {
+          messageCache.set(threadId, finalMessages);
+        }
       } else {
         throw new Error("No response received");
       }
@@ -492,6 +599,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
       setError("Sorry, I'm having trouble connecting. Please try again.");
     } finally {
       setIsTyping(false);
+      processInProgress.current = false;
     }
   };
 
@@ -505,6 +613,12 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
 
   // Voice recording functions
   const startRecording = async () => {
+    // Prevent duplicate recordings
+    if (processInProgress.current) {
+      console.log("Process already in progress, skipping");
+      return;
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
@@ -517,6 +631,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
       };
 
       recorder.onstop = async () => {
+        processInProgress.current = true;
         const audioBlob = new Blob(chunks, { type: "audio/webm" });
 
         try {
@@ -546,16 +661,43 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
               timestamp: new Date(),
             };
 
-            setMessages((prev) => [...prev, userMessage]);
+            // Update messages and cache
+            const updatedMessages = [...messages, userMessage];
+            setMessages(updatedMessages);
 
-            // Send message to thread
-            const messageAdded = await addMessageToThread(
-              threadId,
-              formattedText
-            );
+            if (threadId) {
+              messageCache.set(threadId, updatedMessages);
+            }
+
+            // Send message to thread with retry
+            let messageAdded = false;
+            let retryCount = 0;
+            const maxRetries = 3;
+
+            while (!messageAdded && retryCount < maxRetries) {
+              try {
+                messageAdded = await addMessageToThread(
+                  threadId,
+                  formattedText
+                );
+                if (!messageAdded) {
+                  retryCount++;
+                  console.log(
+                    `Failed to send message, retry ${retryCount}/${maxRetries}`
+                  );
+                  await new Promise((resolve) => setTimeout(resolve, 2000));
+                }
+              } catch (sendError) {
+                retryCount++;
+                console.error("Error sending message:", sendError);
+                await new Promise((resolve) => setTimeout(resolve, 2000));
+              }
+            }
 
             if (!messageAdded) {
-              throw new Error("Failed to send message");
+              throw new Error(
+                "Failed to send voice message after multiple attempts"
+              );
             }
 
             // Run the assistant
@@ -579,7 +721,13 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
                 timestamp: latestMessage.createdAt,
               };
 
-              setMessages((prev) => [...prev, assistantMessage]);
+              // Update messages and cache
+              const finalMessages = [...updatedMessages, assistantMessage];
+              setMessages(finalMessages);
+
+              if (threadId) {
+                messageCache.set(threadId, finalMessages);
+              }
 
               // Clear input after sending
               setInputValue("");
@@ -592,6 +740,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
           );
         } finally {
           setIsTyping(false);
+          processInProgress.current = false;
         }
       };
 
@@ -604,6 +753,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
       setError(
         "I couldn't access your microphone. Please check your browser permissions."
       );
+      processInProgress.current = false;
     }
   };
 
@@ -770,7 +920,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
             size="icon"
             variant="outline"
             onClick={handleCameraClick}
-            disabled={isTyping || isUploading}
+            disabled={isTyping || isUploading || processInProgress.current}
           >
             <Camera
               className={`h-5 w-5 ${isUploading ? "animate-pulse" : ""}`}
@@ -782,13 +932,13 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
             onKeyDown={handleKeyDown}
             placeholder="Message Niblet..."
             className="flex-1"
-            disabled={isTyping || isUploading}
+            disabled={isTyping || isUploading || processInProgress.current}
           />
           <Button
             size="icon"
             variant="outline"
             onClick={handlePhoneCall}
-            disabled={isCalling || isTyping}
+            disabled={isCalling || isTyping || processInProgress.current}
             className={isCalling ? "text-green-500 animate-pulse" : ""}
           >
             <Phone className="h-5 w-5" />
@@ -797,7 +947,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
             size="icon"
             variant={isRecording ? "destructive" : "outline"}
             onClick={toggleRecording}
-            disabled={isTyping || isUploading}
+            disabled={isTyping || isUploading || processInProgress.current}
           >
             {isRecording ? (
               <MicOff className="h-5 w-5" />
@@ -813,7 +963,8 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
               isTyping ||
               !threadId ||
               !assistantId ||
-              isUploading
+              isUploading ||
+              processInProgress.current
             }
           >
             <Send className="h-5 w-5" />
