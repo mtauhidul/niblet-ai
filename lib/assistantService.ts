@@ -471,6 +471,7 @@ export const addMessageToThread = async (
 };
 
 // Update the run assistant function to manage run state
+// Enhanced runAssistant function that can generate initial welcome messages
 export const runAssistant = async (
   threadId: string,
   assistantId: string,
@@ -482,6 +483,28 @@ export const runAssistant = async (
 
   try {
     console.log(`Running assistant ${assistantId} on thread ${threadId}`);
+
+    // Check if the thread has any messages before creating a run
+    // This is to handle the case of a newly created thread that needs an initial welcome message
+    let initialWelcome = false;
+    try {
+      const messages = await openai.beta.threads.messages.list(threadId, {
+        limit: 1,
+      });
+      initialWelcome = messages.data.length === 0;
+
+      // If no messages exist and this is a first-time run for welcome message,
+      // add a hidden system message to trigger the assistant
+      if (initialWelcome) {
+        console.log("No messages in thread, adding system message for welcome");
+        await openai.beta.threads.messages.create(threadId, {
+          role: "user",
+          content: "System: Initialize conversation with a friendly welcome.",
+        });
+      }
+    } catch (error) {
+      console.warn("Error checking messages, continuing with run:", error);
+    }
 
     // Wait if there's already an active run
     if (runStateManager.hasActiveRun(threadId)) {
@@ -547,7 +570,7 @@ export const runAssistant = async (
 
     console.log("Run completed successfully, fetching messages");
 
-    // Get messages after completion
+    // Get messages after completion, including the initial welcome if it was just created
     const messages = await retry(() =>
       openai.beta.threads.messages.list(threadId, {
         order: "asc",
@@ -555,15 +578,29 @@ export const runAssistant = async (
       })
     );
 
-    return messages.data
-      .filter((msg) => msg.role === "assistant")
+    // If this was an initial welcome, filter out the system prompt message
+    // In assistantService.ts, update the runAssistant function
+    const assistantMessages = messages.data
+      .filter((msg) => {
+        // Filter out system messages or prompts
+        if (
+          msg.role === "user" &&
+          msg.content[0]?.type === "text" &&
+          msg.content[0].text.value.toLowerCase().includes("system: initialize")
+        ) {
+          return false;
+        }
+        // Only include assistant messages
+        return msg.role === "assistant";
+      })
       .map((msg) => ({
         id: msg.id,
         content:
           msg.content[0]?.type === "text" ? msg.content[0].text.value : "",
         createdAt: new Date(msg.created_at * 1000),
-      }))
-      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+      }));
+
+    return assistantMessages;
   } catch (error) {
     console.error("Error running assistant:", error);
 

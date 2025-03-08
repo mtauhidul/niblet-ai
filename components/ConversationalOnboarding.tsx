@@ -10,11 +10,11 @@ import {
   transcribeAudio,
 } from "@/lib/assistantService";
 import { createOrUpdateUserProfile } from "@/lib/firebase/models/user";
+import { formatChatText } from "@/lib/utils";
 import { Mic, MicOff, Send } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { formatChatText } from "./ChatContainer";
 import { Input } from "./ui/input";
 import { Progress } from "./ui/progress";
 

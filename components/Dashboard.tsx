@@ -1,8 +1,11 @@
 // components/Dashboard.tsx
 "use client";
 
+import { useChatManager } from "@/hooks/useChatManager";
 import { PersonalityKey } from "@/lib/assistantService";
 import { getUserProfileById } from "@/lib/auth/authService";
+import { signOutFromAll } from "@/lib/auth/authUtils";
+import { clearAllStorage } from "@/lib/ChatHistoryManager";
 import { db } from "@/lib/firebase/clientApp";
 import type { Meal } from "@/lib/firebase/models/meal";
 import type { UserProfile } from "@/lib/firebase/models/user";
@@ -16,7 +19,7 @@ import {
   where,
 } from "firebase/firestore";
 import { ChevronDown, ChevronUp, Settings } from "lucide-react";
-import { signOut, useSession } from "next-auth/react";
+import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -76,15 +79,11 @@ const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
 
 interface DashboardProps {
   aiPersonality?: PersonalityKey;
-  threadId?: string;
-  assistantId?: string;
   onMealLogged?: () => void;
 }
 
 const Dashboard = ({
   aiPersonality: propAiPersonality = "best-friend",
-  threadId: propThreadId,
-  assistantId: propAssistantId,
   onMealLogged: propOnMealLogged = () => {},
 }: DashboardProps) => {
   const { data: session, status } = useSession();
@@ -94,15 +93,15 @@ const Dashboard = ({
   const [isLoading, setIsLoading] = useState(true);
   const [loadingError, setLoadingError] = useState<string | null>(null);
 
-  // Chat config
-  const [aiPersonality, setAiPersonality] =
-    useState<PersonalityKey>(propAiPersonality);
-  const [chatThreadId, setChatThreadId] = useState<string | null>(
-    propThreadId || null
-  );
-  const [assistantId, setAssistantId] = useState<string | null>(
-    propAssistantId || null
-  );
+  // Use the chat manager hook for chat state management
+  const {
+    threadId: chatThreadId,
+    assistantId,
+    personality: aiPersonality,
+    isInitializing: isChatInitializing,
+    error: chatError,
+    changePersonality,
+  } = useChatManager(session?.user?.id);
 
   // Calories / meals data
   const [todaysMeals, setTodaysMeals] = useState<Meal[]>([]);
@@ -242,31 +241,21 @@ const Dashboard = ({
     setupFirestoreListener,
   ]);
 
-  // Load user profile for thread IDs
+  // Load user profile for target calories and other settings
   const loadUserProfile = useCallback(async () => {
     if (!session?.user?.id) return;
     try {
       const profile = await getUserProfileById(session.user.id);
       if (profile) {
         setUserProfile(profile);
-        if (profile.aiPersonality) {
-          setAiPersonality(profile.aiPersonality as PersonalityKey);
-        }
         if (profile.targetCalories) {
           setTargetCalories(profile.targetCalories);
-        }
-        // If no threadId was passed as prop, use the one from profile
-        if (profile.threadId && !chatThreadId) {
-          setChatThreadId(profile.threadId);
-        }
-        if (profile.assistantId && !assistantId) {
-          setAssistantId(profile.assistantId);
         }
       }
     } catch (err) {
       console.error("Error loading user profile:", err);
     }
-  }, [session?.user?.id, chatThreadId, assistantId]);
+  }, [session?.user?.id]);
 
   // On mount, check auth status, load profile, set up meals
   useEffect(() => {
@@ -337,17 +326,31 @@ const Dashboard = ({
     }, 2000);
   };
 
+  // 2) Use signOutFromAll instead of next-auth's signOut
   const handleLogout = async () => {
+    toast.loading("Signing out...");
+
     try {
-      await signOut({ callbackUrl: "/" });
-    } catch (err) {
-      console.error("Logout error:", err);
+      // First clear all storage completely to ensure no chat data remains
+      clearAllStorage();
+
+      // Then perform the full signout process
+      const success = await signOutFromAll();
+
+      if (!success) {
+        // Force navigate to home page if normal signout fails
+        window.location.href = "/";
+      }
+    } catch (error) {
+      console.error("Error signing out:", error);
+      // Force redirect to homepage on error
       window.location.href = "/";
     }
   };
 
+  // Use the chat manager's personality change
   const handlePersonalityChange = (newPersonality: PersonalityKey) => {
-    setAiPersonality(newPersonality);
+    changePersonality(newPersonality);
   };
 
   // If still SSR or loading
@@ -371,7 +374,7 @@ const Dashboard = ({
   }
 
   return (
-    <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-900 ">
       {/* Header */}
       <header className="py-3 px-4 border-b dark:border-gray-800 flex justify-between items-center">
         <HamburgerMenu
@@ -390,80 +393,93 @@ const Dashboard = ({
         </Button>
       </header>
 
-      <CaloriesStatusBar
-        caloriesConsumed={caloriesConsumed}
-        targetCalories={targetCalories}
-        className="mx-4 my-3"
-      />
-
-      {loadingError && (
-        <div className="bg-red-100 dark:bg-red-900 p-4 m-4 rounded-lg text-red-800 dark:text-red-200">
-          <div className="font-medium">Error loading data</div>
-          <div>{loadingError}</div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="mt-2"
-            onClick={() => {
-              setLoadingError(null);
-              setupFirestoreListener();
-            }}
-          >
-            Retry
-          </Button>
-        </div>
-      )}
-
-      <div className="mb-4 border rounded-lg shadow-sm overflow-hidden flex-1">
-        <ChatContainer
-          aiPersonality={aiPersonality}
-          threadId={chatThreadId || undefined}
-          assistantId={assistantId || undefined}
-          onMealLogged={combinedHandleMealLogged}
-          onWeightLogged={handleWeightLogged}
-          isCalling={isCalling}
-          onCall={handlePhoneCall}
-          onThreadInitialized={(newThreadId, newAssistantId) => {
-            // If ChatContainer creates a new thread, store them in state
-            setChatThreadId(newThreadId);
-            setAssistantId(newAssistantId);
-          }}
+      <div className="flex-1 flex flex-col p-4">
+        <CaloriesStatusBar
+          caloriesConsumed={caloriesConsumed}
+          targetCalories={targetCalories}
+          className="mx-4 my-3"
         />
-      </div>
 
-      {/* Collapsible for today's meals */}
-      <CollapsibleSection title="Today's Meals">
-        <TodaysMeals
-          meals={todaysMeals}
-          isLoading={isRefreshing}
-          onMealDeleted={handleMealLogged}
-        />
-        <div className="mt-2">
-          <Button variant="outline" onClick={handleRefresh}>
-            Refresh Meals
-          </Button>
-        </div>
-      </CollapsibleSection>
-
-      {/* Collapsible for progress chart */}
-      <CollapsibleSection title="Progress Chart">
-        <div className="relative">
-          <CombinedWeightCalorieChart dateRange={dateRange} />
-          <div className="mt-2 flex justify-center">
-            <Tabs
-              value={dateRange}
-              onValueChange={(val) => setDateRange(val as any)}
+        {loadingError && (
+          <div className="bg-red-100 dark:bg-red-900 p-4 m-4 rounded-lg text-red-800 dark:text-red-200">
+            <div className="font-medium">Error loading data</div>
+            <div>{loadingError}</div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-2"
+              onClick={() => {
+                setLoadingError(null);
+                setupFirestoreListener();
+              }}
             >
-              <TabsList>
-                <TabsTrigger value="week">Week</TabsTrigger>
-                <TabsTrigger value="month">Month</TabsTrigger>
-                <TabsTrigger value="3months">3 Months</TabsTrigger>
-                <TabsTrigger value="year">Year</TabsTrigger>
-              </TabsList>
-            </Tabs>
+              Retry
+            </Button>
           </div>
+        )}
+
+        {chatError && (
+          <div className="bg-red-100 dark:bg-red-900 p-4 m-4 rounded-lg text-red-800 dark:text-red-200">
+            <div className="font-medium">Chat Error</div>
+            <div>{chatError}</div>
+          </div>
+        )}
+
+        <div className="mb-4 border rounded-lg shadow-sm overflow-hidden flex-1">
+          {isChatInitializing ? (
+            <div className="flex items-center justify-center h-full">
+              <div className="text-center">
+                <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                <p>Connecting to assistant...</p>
+              </div>
+            </div>
+          ) : (
+            <ChatContainer
+              aiPersonality={aiPersonality}
+              threadId={chatThreadId || undefined}
+              assistantId={assistantId || undefined}
+              onMealLogged={combinedHandleMealLogged}
+              onWeightLogged={handleWeightLogged}
+              isCalling={isCalling}
+              onCall={handlePhoneCall}
+            />
+          )}
         </div>
-      </CollapsibleSection>
+
+        {/* Collapsible for today's meals */}
+        <CollapsibleSection title="Today's Meals">
+          <TodaysMeals
+            meals={todaysMeals}
+            isLoading={isRefreshing}
+            onMealDeleted={handleMealLogged}
+          />
+          <div className="mt-2">
+            <Button variant="outline" onClick={handleRefresh}>
+              Refresh Meals
+            </Button>
+          </div>
+        </CollapsibleSection>
+
+        {/* Collapsible for progress chart */}
+        <CollapsibleSection title="Progress Chart">
+          <div className="relative">
+            <CombinedWeightCalorieChart dateRange={dateRange} />
+            <div className="mt-2 flex justify-center">
+              <Tabs
+                value={dateRange}
+                onValueChange={(val) => setDateRange(val as any)}
+              >
+                <TabsList>
+                  <TabsTrigger value="week">Week</TabsTrigger>
+                  <TabsTrigger value="month">Month</TabsTrigger>
+                  <TabsTrigger value="3months">3 Months</TabsTrigger>
+                  <TabsTrigger value="year">Year</TabsTrigger>
+                </TabsList>
+              </Tabs>
+            </div>
+          </div>
+        </CollapsibleSection>
+      </div>
 
       {/* Logout dialog */}
       <AlertDialog open={showLogoutDialog} onOpenChange={setShowLogoutDialog}>

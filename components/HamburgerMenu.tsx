@@ -33,6 +33,7 @@ import { Switch } from "./ui/switch";
 
 // 1) Import our custom signOutFromAll function
 import { signOutFromAll } from "@/lib/auth/authUtils";
+import { clearAllStorage } from "@/lib/ChatHistoryManager";
 
 interface HamburgerMenuProps {
   currentPersonality?: PersonalityKey;
@@ -96,10 +97,16 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
   // 2) Use signOutFromAll instead of next-auth's signOut
   const handleSignOut = async () => {
     toast.loading("Signing out...");
+
     try {
+      // First clear all storage completely to ensure no chat data remains
+      clearAllStorage();
+
+      // Then perform the full signout process
       const success = await signOutFromAll();
+
       if (!success) {
-        // Fallback in case signOut fails
+        // Force navigate to home page if normal signout fails
         window.location.href = "/";
       }
     } catch (error) {
@@ -108,6 +115,17 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
       window.location.href = "/";
     }
   };
+
+  // const handleLogout = async () => {
+  //   try {
+  //     // Use the enhanced sign out function
+  //     clearAllStorage();
+  //     await signOutFromAll();
+  //   } catch (err) {
+  //     console.error("Logout error:", err);
+  //     window.location.href = "/";
+  //   }
+  // };
 
   const exportData = () => {
     toast.info("Preparing your data export...");

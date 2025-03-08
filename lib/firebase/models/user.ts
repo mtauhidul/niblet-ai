@@ -18,6 +18,7 @@ export interface User {
 }
 
 export interface UserProfile {
+  name?: string;
   userId: string;
   age?: number;
   gender?: string;

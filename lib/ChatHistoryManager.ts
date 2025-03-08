@@ -1,4 +1,5 @@
-// lib/ChatHistoryManager.ts
+// lib/ChatHistoryManager.ts - Enhanced message cache clearing
+
 import { Message } from "@/types/chat";
 
 // Prefix for localStorage keys to avoid conflicts
@@ -90,28 +91,84 @@ export const clearMessagesFromCache = (threadId: string): void => {
 };
 
 /**
- * Clears all chat message caches (for all threads) from localStorage.
- * Typically called only on logout.
+ * Clears ALL chat message caches (for all threads) from localStorage.
+ * Enhanced version that aggressively removes all chat-related data.
  */
 export const clearAllMessagesCaches = (): void => {
   if (typeof window === "undefined") return;
 
   try {
+    const beforeCount = localStorage.length;
+    console.log(`Before clearing: ${beforeCount} items in localStorage`);
+
+    // Define patterns for chat-related localStorage items
+    const chatPatterns = [
+      MESSAGE_CACHE_KEY_PREFIX,
+      "assistant_",
+      "niblet_",
+      "thread",
+      "message",
+      "chat",
+    ];
+
+    // Get all keys to remove
     const keysToRemove: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (key && key.startsWith(MESSAGE_CACHE_KEY_PREFIX)) {
+      if (!key) continue;
+
+      // Check if key matches any pattern
+      if (chatPatterns.some((pattern) => key.includes(pattern))) {
         keysToRemove.push(key);
       }
     }
 
+    // Remove all matched keys
     keysToRemove.forEach((key) => {
-      localStorage.removeItem(key);
+      try {
+        localStorage.removeItem(key);
+        console.log(`Removed: ${key}`);
+      } catch (err) {
+        console.error(`Failed to remove key: ${key}`, err);
+      }
     });
-    console.log(
-      `Cleared ${keysToRemove.length} cached threads from localStorage.`
-    );
+
+    const afterCount = localStorage.length;
+    console.log(`Cleared ${beforeCount - afterCount} items from localStorage`);
+    console.log(`Remaining: ${afterCount} items`);
+
+    // List remaining items for debugging
+    if (afterCount > 0) {
+      console.log("Remaining localStorage items:");
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        console.log(`- ${key}`);
+      }
+    }
   } catch (error) {
     console.error("Error clearing all message caches:", error);
+  }
+};
+
+/**
+ * A nuclear option to wipe ALL localStorage for the domain.
+ * Use with caution as this will clear everything, not just chat data.
+ */
+export const clearAllStorage = (): void => {
+  if (typeof window === "undefined") return;
+
+  try {
+    // Log what's being cleared
+    console.log(`Clearing all storage: ${localStorage.length} items`);
+
+    // Clear localStorage
+    localStorage.clear();
+
+    // Clear sessionStorage too
+    sessionStorage.clear();
+
+    console.log("All browser storage cleared");
+  } catch (error) {
+    console.error("Error clearing all storage:", error);
   }
 };

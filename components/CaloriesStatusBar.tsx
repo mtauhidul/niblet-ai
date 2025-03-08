@@ -39,7 +39,9 @@ const CaloriesStatusBar: React.FC<CaloriesStatusBarProps> = ({
   }, [caloriesConsumed, prevCalories]);
 
   return (
-    <Card className={`overflow-hidden ${className} h-12 p-1 m-2 shadow-sm`}>
+    <Card
+      className={`overflow-hidden ${className} h-12 p-0 m-0 mb-2 shadow-sm`}
+    >
       {" "}
       {/* Reduced height, removed padding & margin */}
       <div className="relative h-full">

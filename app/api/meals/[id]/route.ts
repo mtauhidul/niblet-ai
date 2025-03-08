@@ -45,8 +45,6 @@ export async function DELETE(
       { message: "Meal deleted successfully" },
       { status: 200 }
     );
-
-    // Prevent caching
     response.headers.set(
       "Cache-Control",
       "no-store, no-cache, must-revalidate"

@@ -81,6 +81,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
 
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const processInProgress = useRef<boolean>(false);
+  const initializationAttempted = useRef<boolean>(false);
 
   // If the assistant calls any "tools" like logging a meal, do that here:
   const handleToolCalls = useCallback(
@@ -153,11 +154,16 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
    * 2. Otherwise, create a new thread and assistant, store them, and do a welcome message.
    */
   useEffect(() => {
-    // Only run once
-    if (isInitialized) return;
+    // Only run once and prevent re-initialization
+    if (isInitialized || initializationAttempted.current || !session?.user?.id)
+      return;
+
+    // Mark that we've attempted initialization to prevent double initialization
+    initializationAttempted.current = true;
 
     const initializeChat = async () => {
       try {
+        setIsTyping(true);
         let currentThreadId = threadId;
         let currentAssistantId = assistantId;
 
@@ -185,11 +191,11 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
             );
             setMessages(cachedMessages);
             setIsInitialized(true);
+            setIsTyping(false);
             return;
           }
 
           // If localStorage is empty, fetch from the server
-          setIsTyping(true);
           try {
             const resp = await fetch(
               `/api/assistant/messages?threadId=${currentThreadId}`
@@ -203,28 +209,52 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
                 })) as Message[];
                 setMessages(fetchedMessages);
                 saveMessagesToCache(currentThreadId, fetchedMessages);
+                setIsInitialized(true);
+                setIsTyping(false);
+                return;
               } else {
-                // If no messages exist on the server, it might be a new thread
-                // Optionally run the assistant for a greeting if you want
+                // If no messages exist on the server, we need to run the assistant for a greeting
                 console.log(
-                  "No server messages found; using fallback greeting"
+                  "No messages found for existing thread, generating new welcome message"
                 );
+
+                // Run the assistant to get a welcome message
+                const assistantMessages = await runAssistant(
+                  currentThreadId,
+                  currentAssistantId,
+                  aiPersonality,
+                  handleToolCalls
+                );
+
+                if (assistantMessages && assistantMessages.length > 0) {
+                  const welcomeMessage =
+                    assistantMessages[assistantMessages.length - 1];
+                  const initialMsgs: Message[] = [
+                    {
+                      id: welcomeMessage.id,
+                      role: "assistant",
+                      content: welcomeMessage.content,
+                      timestamp: welcomeMessage.createdAt,
+                    },
+                  ];
+                  setMessages(initialMsgs);
+                  saveMessagesToCache(currentThreadId, initialMsgs);
+                  setIsInitialized(true);
+                  setIsTyping(false);
+                  return;
+                }
               }
             }
           } catch (err) {
             console.error("Error fetching messages from server:", err);
-          } finally {
-            setIsTyping(false);
+            // Continue to create a welcome message if fetch fails
           }
-          setIsInitialized(true);
-          return;
         }
 
         // If we do not have a thread yet, create one
         console.log(
           "No existing thread or assistant found. Creating new thread..."
         );
-        setIsTyping(true);
 
         const newThreadId = await createThread();
         if (!newThreadId) throw new Error("Failed to create new thread");
@@ -237,19 +267,15 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
         // Notify the parent so it can store these in the user profile if needed
         onThreadInitialized?.(newThreadId, newAssistantId);
 
-        // If user is logged in, store these in Firestore user profile
-        if (session?.user?.id) {
-          await createOrUpdateUserProfile(session.user.id, {
-            threadId: newThreadId,
-            assistantId: newAssistantId,
-            aiPersonality: aiPersonality,
-          });
-        }
+        // Store these in Firestore user profile
+        await createOrUpdateUserProfile(session.user.id, {
+          threadId: newThreadId,
+          assistantId: newAssistantId,
+          aiPersonality: aiPersonality,
+        });
 
-        // Optionally send a "Hello" to the thread so the assistant can respond
-        await addMessageToThread(newThreadId, "Hello");
-
-        // Get the assistant's welcome response
+        // Start chat with system-initiated welcome, not waiting for user to say "hello"
+        // Run the assistant directly without sending a user message first
         const assistantMessages = await runAssistant(
           newThreadId,
           newAssistantId,
@@ -270,12 +296,12 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
           setMessages(initialMsgs);
           saveMessagesToCache(newThreadId, initialMsgs);
         } else {
-          // Fallback greeting
+          // Fallback greeting if the assistant doesn't respond
           const fallbackMsg: Message[] = [
             {
               id: "welcome",
               role: "assistant",
-              content: "Hi, I'm Nibble! How can I help you today?",
+              content: "Hi, I'm Niblet! How can I help you today?",
               timestamp: new Date(),
             },
           ];
@@ -517,58 +543,72 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
           </div>
         )}
 
-        {messages.map((msg) => {
-          const isImageOnly = msg.imageUrl && !msg.content;
-          if (isImageOnly) {
+        {messages
+          .filter((msg) => {
+            // Filter out system initialization messages
+            return !(
+              (msg.role === "user" || msg.role === "system") &&
+              typeof msg.content === "string" &&
+              msg.content.toLowerCase().includes("system: initialize")
+            );
+          })
+          .map((msg) => {
+            const isImageOnly = msg.imageUrl && !msg.content;
+            if (isImageOnly) {
+              return (
+                <div
+                  key={msg.id}
+                  className={`flex ${
+                    msg.role === "user" ? "justify-end" : "justify-start"
+                  }`}
+                >
+                  <div
+                    className={`p-1 rounded-lg overflow-hidden ${
+                      msg.role === "user"
+                        ? "bg-blue-500"
+                        : "bg-gray-200 dark:bg-gray-700"
+                    }`}
+                  >
+                    <Image
+                      src={msg.imageUrl!}
+                      alt="User upload"
+                      width={300}
+                      height={200}
+                      className="rounded-md"
+                      style={{ objectFit: "contain" }}
+                    />
+                  </div>
+                </div>
+              );
+            }
+
+            // Skip any system messages completely
+            if (msg.role === "system") {
+              return null;
+            }
+
             return (
               <div
                 key={msg.id}
-                className={`flex ${
-                  msg.role === "user" ? "justify-end" : "justify-start"
-                }`}
+                className={cn(
+                  "rounded-lg p-3 max-w-[85%]",
+                  msg.role === "user"
+                    ? "ml-auto bg-blue-500 text-white"
+                    : msg.role === "assistant"
+                    ? "mr-auto bg-gray-200 dark:bg-gray-700 dark:text-white"
+                    : "mx-auto bg-yellow-100 dark:bg-yellow-900 text-center"
+                )}
               >
-                <div
-                  className={`p-1 rounded-lg overflow-hidden ${
-                    msg.role === "user"
-                      ? "bg-blue-500"
-                      : "bg-gray-200 dark:bg-gray-700"
-                  }`}
-                >
-                  <Image
-                    src={msg.imageUrl!}
-                    alt="User upload"
-                    width={300}
-                    height={200}
-                    className="rounded-md"
-                    style={{ objectFit: "contain" }}
-                  />
-                </div>
+                {msg.role === "assistant" ? (
+                  <div className="prose dark:prose-invert prose-sm max-w-none">
+                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  </div>
+                ) : (
+                  <div>{msg.content}</div>
+                )}
               </div>
             );
-          }
-
-          return (
-            <div
-              key={msg.id}
-              className={cn(
-                "rounded-lg p-3 max-w-[85%]",
-                msg.role === "user"
-                  ? "ml-auto bg-blue-500 text-white"
-                  : msg.role === "assistant"
-                  ? "mr-auto bg-gray-200 dark:bg-gray-700 dark:text-white"
-                  : "mx-auto bg-yellow-100 dark:bg-yellow-900 text-center"
-              )}
-            >
-              {msg.role === "assistant" ? (
-                <div className="prose dark:prose-invert prose-sm max-w-none">
-                  <ReactMarkdown>{msg.content}</ReactMarkdown>
-                </div>
-              ) : (
-                <div>{msg.content}</div>
-              )}
-            </div>
-          );
-        })}
+          })}
 
         {/* "Assistant is typing..." dots */}
         {isTyping && (
@@ -606,7 +646,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Message Nibble..."
+            placeholder="Message Niblet..."
             className="flex-1"
             disabled={isTyping || isUploading || processInProgress.current}
           />
