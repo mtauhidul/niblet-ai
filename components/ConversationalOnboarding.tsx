@@ -82,7 +82,7 @@ const ConversationalOnboarding = () => {
         await addMessageToThread(
           newThreadId,
           "You are helping a new user set up their profile for a nutrition and health app. " +
-            "Start by greeting the user with 'Hi, I'm Nibble! I'll be helping you set up your goal and kick off your calorie-tracking journey. First, what's your name?' " +
+            "Start by greeting the user with 'Hi, I'm niblet! I'll be helping you set up your goal and kick off your calorie-tracking journey. First, what's your name?' " +
             "Then follow this exact sequence: " +
             "1. After they provide their name, say 'Nice to meet you, [Name]! What's your current weight?' " +
             "2. After weight, ask 'Great! Now, could you tell me your height and age?' If they provide only one, ask for the missing value. " +
@@ -118,7 +118,7 @@ const ConversationalOnboarding = () => {
               id: "welcome",
               role: "assistant",
               content:
-                "Hi, I'm Nibble! I'll be helping you set up your goal and kick off your calorie-tracking journey. First, what's your name?",
+                "Hi, I'm niblet! I'll be helping you set up your goal and kick off your calorie-tracking journey. First, what's your name?",
               timestamp: new Date(),
             },
           ]);

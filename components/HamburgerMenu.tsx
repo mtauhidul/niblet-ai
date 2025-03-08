@@ -24,12 +24,15 @@ import {
   Sun,
   User,
 } from "lucide-react";
-import { signOut, useSession } from "next-auth/react";
+import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Label } from "./ui/label";
 import { Switch } from "./ui/switch";
+
+// 1) Import our custom signOutFromAll function
+import { signOutFromAll } from "@/lib/auth/authUtils";
 
 interface HamburgerMenuProps {
   currentPersonality?: PersonalityKey;
@@ -43,9 +46,9 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const router = useRouter();
-  const { data: session, status } = useSession();
+  const { data: session } = useSession();
 
-  // Initialize dark mode from localStorage on component mount
+  // Initialize dark mode from localStorage on mount
   useEffect(() => {
     if (typeof window !== "undefined") {
       const savedDarkMode = localStorage.getItem("darkMode") === "true";
@@ -86,16 +89,19 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
       }
     }
 
-    // Close the menu after selection
+    // Close the menu
     setIsOpen(false);
   };
 
+  // 2) Use signOutFromAll instead of next-auth's signOut
   const handleSignOut = async () => {
-    // Show indicator that sign out is in progress
     toast.loading("Signing out...");
-
     try {
-      await signOut({ callbackUrl: "/" });
+      const success = await signOutFromAll();
+      if (!success) {
+        // Fallback in case signOut fails
+        window.location.href = "/";
+      }
     } catch (error) {
       console.error("Error signing out:", error);
       // Force redirect to homepage on error
@@ -108,7 +114,7 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
 
     setTimeout(() => {
       try {
-        // Create a data object for demo purposes
+        // Create a sample data object for demo
         const exportData = {
           userData: {
             name: session?.user?.name,
@@ -127,13 +133,12 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
           ],
         };
 
-        // Convert to JSON and create download link
+        // Convert to JSON and trigger download
         const dataStr = JSON.stringify(exportData, null, 2);
         const dataUri =
           "data:application/json;charset=utf-8," + encodeURIComponent(dataStr);
 
         const exportFileDefaultName = "niblet-data.json";
-
         const linkElement = document.createElement("a");
         linkElement.setAttribute("href", dataUri);
         linkElement.setAttribute("download", exportFileDefaultName);
@@ -189,7 +194,7 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
     },
   ];
 
-  // AI personality options with human-readable labels
+  // AI personality options
   const personalityOptions = [
     {
       key: "best-friend",
@@ -220,6 +225,7 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
           <Menu className="h-6 w-6" />
         </Button>
       </SheetTrigger>
+
       <SheetContent
         side="left"
         className="w-[85vw] max-w-xs sm:max-w-sm h-[100dvh] flex flex-col overflow-hidden p-4"
@@ -281,7 +287,7 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
             </nav>
           </div>
 
-          {/* AI Personality Section - More compact */}
+          {/* AI Personality Section */}
           <div className="mb-4">
             <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
               AI Personality
@@ -340,7 +346,7 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
             />
           </div>
 
-          {/* User Info - Simplified for better space usage */}
+          {/* User Info */}
           {session?.user && (
             <div className="py-2 bg-gray-100 dark:bg-gray-800 rounded-md">
               <div className="flex items-center">
@@ -368,7 +374,7 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
             </div>
           )}
 
-          {/* Sign Out Button - Adjusted to fit better */}
+          {/* Sign Out Button */}
           <Button
             variant="outline"
             size="sm"

@@ -65,7 +65,6 @@ const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
           <ChevronDown className="h-4 w-4" />
         )}
       </button>
-
       {isExpanded && (
         <div className="p-4 animate-in slide-in-from-top-4 duration-300">
           {children}
@@ -77,66 +76,73 @@ const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
 
 interface DashboardProps {
   aiPersonality?: PersonalityKey;
+  threadId?: string;
+  assistantId?: string;
+  onMealLogged?: () => void;
 }
 
 const Dashboard = ({
-  aiPersonality: propAiPersonality,
-}: DashboardProps = {}) => {
-  const [caloriesConsumed, setCaloriesConsumed] = useState(0);
-  const [caloriesRemaining, setCaloriesRemaining] = useState(0);
-  const [targetCalories, setTargetCalories] = useState(2000); // Default target
-  const [todaysMeals, setTodaysMeals] = useState<Meal[]>([]);
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [aiPersonality, setAiPersonality] = useState<PersonalityKey>(
-    propAiPersonality || "best-friend"
-  );
-  const [dateRange, setDateRange] = useState<
-    "week" | "month" | "3months" | "year"
-  >("month");
-  const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [mounted, setMounted] = useState(false);
-  const [loadingError, setLoadingError] = useState<string | null>(null);
-  const [isCalling, setIsCalling] = useState(false);
-  const [showLogoutDialog, setShowLogoutDialog] = useState(false);
-
-  // Toast state tracking to prevent duplicates
-  const [toastShown, setToastShown] = useState(false);
-  const toastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Keep track of the current unsubscribe function
-  const unsubscribeRef = useRef<(() => void) | null>(null);
-  const chartRef = useRef<HTMLDivElement>(null);
-
+  aiPersonality: propAiPersonality = "best-friend",
+  threadId: propThreadId,
+  assistantId: propAssistantId,
+  onMealLogged: propOnMealLogged = () => {},
+}: DashboardProps) => {
   const { data: session, status } = useSession();
   const router = useRouter();
 
-  // Set mounted state to prevent hydration mismatch
+  const [mounted, setMounted] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadingError, setLoadingError] = useState<string | null>(null);
+
+  // Chat config
+  const [aiPersonality, setAiPersonality] =
+    useState<PersonalityKey>(propAiPersonality);
+  const [chatThreadId, setChatThreadId] = useState<string | null>(
+    propThreadId || null
+  );
+  const [assistantId, setAssistantId] = useState<string | null>(
+    propAssistantId || null
+  );
+
+  // Calories / meals data
+  const [todaysMeals, setTodaysMeals] = useState<Meal[]>([]);
+  const [caloriesConsumed, setCaloriesConsumed] = useState(0);
+  const [caloriesRemaining, setCaloriesRemaining] = useState(0);
+  const [targetCalories, setTargetCalories] = useState(2000);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+
+  const [dateRange, setDateRange] = useState<
+    "week" | "month" | "3months" | "year"
+  >("month");
+
+  const [isCalling, setIsCalling] = useState(false);
+  const [showLogoutDialog, setShowLogoutDialog] = useState(false);
+
+  const toastShownRef = useRef(false);
+  const toastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const unsubscribeRef = useRef<(() => void) | null>(null);
+
+  // Mark the component as mounted to avoid SSR mismatch
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  // Helper function to get today's date bounds
   const getTodayDateBounds = useMemo(() => {
-    const today = new Date();
     const startOfDay = new Date(new Date().setHours(0, 0, 0, 0));
     const endOfDay = new Date(new Date().setHours(23, 59, 59, 999));
     return { startOfDay, endOfDay };
   }, []);
 
-  // Function to set up Firestore listener
   const setupFirestoreListener = useCallback(() => {
     if (!session?.user?.id) return null;
-
     const { startOfDay, endOfDay } = getTodayDateBounds;
 
     try {
-      // Clear any existing listener first
       if (unsubscribeRef.current) {
         unsubscribeRef.current();
       }
-
-      // Create a real-time listener for meals
       const mealsQuery = query(
         collection(db, "meals"),
         where("userId", "==", session.user.id),
@@ -144,7 +150,6 @@ const Dashboard = ({
         where("date", "<=", endOfDay),
         orderBy("date", "desc")
       );
-
       const unsubscribe = onSnapshot(
         mealsQuery,
         (snapshot) => {
@@ -160,81 +165,51 @@ const Dashboard = ({
                   : new Date(data.date),
             } as Meal);
           });
-
           setTodaysMeals(meals);
-
-          // Calculate calories
-          const totalCalories = meals.reduce(
-            (sum, meal) => sum + (Number(meal.calories) || 0),
+          const total = meals.reduce(
+            (sum, m) => sum + (Number(m.calories) || 0),
             0
           );
-
-          setCaloriesConsumed(totalCalories);
-          setCaloriesRemaining(targetCalories - totalCalories);
+          setCaloriesConsumed(total);
+          setCaloriesRemaining(targetCalories - total);
           setIsLoading(false);
           setIsRefreshing(false);
         },
-        (error) => {
-          console.error("Error in meals listener:", error);
+        (err) => {
+          console.error("Error in Firestore listener:", err);
           setLoadingError("Error getting real-time updates. Please refresh.");
           setIsLoading(false);
           setIsRefreshing(false);
-
-          // Fallback to API call if listener fails
-          fetchTodaysMeals();
         }
       );
-
-      // Store the unsubscribe function
       unsubscribeRef.current = unsubscribe;
       return unsubscribe;
-    } catch (error) {
-      console.error("Error setting up Firestore listener:", error);
+    } catch (err) {
+      console.error("Error setting up listener:", err);
       setLoadingError("Error setting up data connection. Please refresh.");
       setIsLoading(false);
       setIsRefreshing(false);
       return null;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.user?.id, targetCalories, getTodayDateBounds]);
+  }, [session?.user?.id, getTodayDateBounds, targetCalories]);
 
-  // Setup Firestore real-time listener for meals
-  useEffect(() => {
-    if (!mounted || !session?.user?.id) return;
-
-    setIsLoading(true);
-    const unsubscribe = setupFirestoreListener();
-
-    // Cleanup function
-    return () => {
-      if (unsubscribe) {
-        unsubscribe();
-      }
-    };
-  }, [session?.user?.id, mounted, setupFirestoreListener]);
-
-  // Fetch today's meals with dedicated error handling
+  // Basic manual fetch fallback
   const fetchTodaysMeals = useCallback(async () => {
     if (!session?.user?.id) return;
-
     setIsRefreshing(true);
     try {
-      console.log("Fetching meals at:", new Date().toISOString());
       const { startOfDay, endOfDay } = getTodayDateBounds;
-
-      // Use direct Firestore query instead of API call for better reliability
-      const mealsQuery = query(
-        collection(db, "meals"),
-        where("userId", "==", session.user.id),
-        where("date", ">=", startOfDay),
-        where("date", "<=", endOfDay),
-        orderBy("date", "desc")
+      const qSnap = await getDocs(
+        query(
+          collection(db, "meals"),
+          where("userId", "==", session.user.id),
+          where("date", ">=", startOfDay),
+          where("date", "<=", endOfDay),
+          orderBy("date", "desc")
+        )
       );
-
-      const querySnapshot = await getDocs(mealsQuery);
-
       const meals: Meal[] = [];
-      querySnapshot.forEach((doc) => {
+      qSnap.forEach((doc) => {
         const data = doc.data();
         meals.push({
           id: doc.id,
@@ -245,32 +220,18 @@ const Dashboard = ({
               : new Date(data.date),
         } as Meal);
       });
-
       setTodaysMeals(meals);
-
-      // Calculate calories
-      const totalCalories = meals.reduce(
-        (sum, meal) => sum + (Number(meal.calories) || 0),
+      const total = meals.reduce(
+        (sum, m) => sum + (Number(m.calories) || 0),
         0
       );
-
-      setCaloriesConsumed(totalCalories);
-      setCaloriesRemaining(targetCalories - totalCalories);
-
-      // Don't show toast here to avoid duplicates - will be handled in handleRefresh
-
-      // Set up listener again after manual refresh
+      setCaloriesConsumed(total);
+      setCaloriesRemaining(targetCalories - total);
+      // Re-init listener
       setupFirestoreListener();
-      return meals;
-    } catch (error) {
-      console.error("Error in fetchTodaysMeals:", error);
-      if (!toastShown) {
-        toast.error("Something went wrong while refreshing your meal data");
-        setToastShown(true);
-        setTimeout(() => setToastShown(false), 3000);
-      }
+    } catch (err) {
+      console.error("fetchTodaysMeals error:", err);
       setLoadingError("Failed to refresh data. Please try again.");
-      throw error;
     } finally {
       setIsRefreshing(false);
     }
@@ -279,153 +240,96 @@ const Dashboard = ({
     targetCalories,
     getTodayDateBounds,
     setupFirestoreListener,
-    toastShown,
   ]);
 
-  // Fetch user data including profile
-  const fetchUserProfile = useCallback(async () => {
+  // Load user profile for thread IDs
+  const loadUserProfile = useCallback(async () => {
     if (!session?.user?.id) return;
-
     try {
-      // Fetch user profile
-      const profileData = await getUserProfileById(session.user.id);
-      if (profileData) {
-        setUserProfile(profileData);
-
-        // Set AI personality from profile or use default
-        if (profileData.aiPersonality) {
-          setAiPersonality(profileData.aiPersonality as PersonalityKey);
+      const profile = await getUserProfileById(session.user.id);
+      if (profile) {
+        setUserProfile(profile);
+        if (profile.aiPersonality) {
+          setAiPersonality(profile.aiPersonality as PersonalityKey);
         }
-
-        // Set target calories from profile or use default
-        if (profileData.targetCalories) {
-          setTargetCalories(profileData.targetCalories);
+        if (profile.targetCalories) {
+          setTargetCalories(profile.targetCalories);
+        }
+        // If no threadId was passed as prop, use the one from profile
+        if (profile.threadId && !chatThreadId) {
+          setChatThreadId(profile.threadId);
+        }
+        if (profile.assistantId && !assistantId) {
+          setAssistantId(profile.assistantId);
         }
       }
-    } catch (error) {
-      console.error("Error fetching user profile:", error);
-      // Silent fail for profile, we'll use defaults
+    } catch (err) {
+      console.error("Error loading user profile:", err);
     }
-  }, [session?.user?.id]);
+  }, [session?.user?.id, chatThreadId, assistantId]);
 
-  // Initial data loading
+  // On mount, check auth status, load profile, set up meals
   useEffect(() => {
-    // Only run client-side code after mounting
     if (!mounted) return;
-
-    // Redirect to sign in if not authenticated
     if (status === "unauthenticated") {
       router.push("/auth/signin");
     } else if (status === "authenticated" && session?.user?.id) {
-      fetchUserProfile();
-      // Note: We don't need to call fetchTodaysMeals here as the Firestore listener will handle it
+      loadUserProfile();
+      setupFirestoreListener();
     }
-  }, [status, router, session, mounted, fetchUserProfile]);
+  }, [
+    status,
+    router,
+    session?.user?.id,
+    mounted,
+    loadUserProfile,
+    setupFirestoreListener,
+  ]);
 
-  // Cleanup for toast timeouts
   useEffect(() => {
     return () => {
-      // Clean up timeout on component unmount
-      if (toastTimeoutRef.current) {
-        clearTimeout(toastTimeoutRef.current);
-      }
+      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+      if (unsubscribeRef.current) unsubscribeRef.current();
     };
   }, []);
 
-  // Handle meal logged from chat or any source
+  // Called by ChatContainer (and also by the local logic) when a meal is logged
   const handleMealLogged = useCallback(() => {
-    console.log("Meal logged, refreshing data...");
-    // No need to manually refresh as Firestore listener will update automatically
-
-    // Show toast notification only if another one isn't already showing
-    if (!toastShown) {
+    if (!toastShownRef.current) {
       toast.success("Meal logged successfully!");
-      setToastShown(true);
-
-      // Reset toast state after delay
-      if (toastTimeoutRef.current) {
-        clearTimeout(toastTimeoutRef.current);
-      }
-
+      toastShownRef.current = true;
       toastTimeoutRef.current = setTimeout(() => {
-        setToastShown(false);
+        toastShownRef.current = false;
       }, 3000);
     }
-  }, [toastShown]);
+  }, []);
 
-  // Handle manual refresh with debounce for toasts
+  // Combine local mealLogged with prop
+  const combinedHandleMealLogged = useCallback(() => {
+    handleMealLogged();
+    propOnMealLogged();
+  }, [handleMealLogged, propOnMealLogged]);
+
+  const handleWeightLogged = useCallback(() => {
+    // Just show a toast or reload user profile
+    toast.success("Weight updated successfully!");
+    if (session?.user?.id) {
+      loadUserProfile();
+    }
+  }, [loadUserProfile, session?.user?.id]);
+
   const handleRefresh = useCallback(() => {
     if (isRefreshing) return;
+    fetchTodaysMeals().then(() => {
+      toast.success("Meal data refreshed");
+    });
+  }, [isRefreshing, fetchTodaysMeals]);
 
-    setIsRefreshing(true);
-
-    // Fetch data
-    fetchTodaysMeals()
-      .then(() => {
-        // Only show success if not recently shown
-        if (!toastShown) {
-          toast.success("Meal data refreshed successfully");
-          setToastShown(true);
-
-          // Reset toastShown after 3 seconds
-          if (toastTimeoutRef.current) {
-            clearTimeout(toastTimeoutRef.current);
-          }
-
-          toastTimeoutRef.current = setTimeout(() => {
-            setToastShown(false);
-          }, 3000);
-        }
-        setIsRefreshing(false);
-      })
-      .catch((error) => {
-        console.error("Error refreshing data:", error);
-        toast.error("Failed to refresh data");
-        setIsRefreshing(false);
-        setToastShown(false);
-      });
-  }, [fetchTodaysMeals, isRefreshing, toastShown]);
-
-  // Handle weight logged from chat
-  const handleWeightLogged = useCallback(async () => {
-    if (!session?.user?.id) return;
-
-    try {
-      // Refresh user profile to get updated weight
-      const profileData = await getUserProfileById(session.user.id);
-      if (profileData) {
-        setUserProfile(profileData);
-
-        if (!toastShown) {
-          toast.success("Weight updated successfully!");
-          setToastShown(true);
-
-          if (toastTimeoutRef.current) {
-            clearTimeout(toastTimeoutRef.current);
-          }
-
-          toastTimeoutRef.current = setTimeout(() => {
-            setToastShown(false);
-          }, 3000);
-        }
-      }
-    } catch (error) {
-      console.error("Error refreshing user profile:", error);
-      toast.error("Failed to update weight information.");
-    }
-  }, [session?.user?.id, toastShown]);
-
-  // Handle phone call assistant
   const handlePhoneCall = () => {
     setIsCalling(true);
     toast.info("Connecting to assistant...");
-
-    // Simulate call connection delay
     setTimeout(() => {
       toast.success("Connected to Niblet voice assistant");
-      // In a real implementation, this would connect to a voice service
-      // For now we'll just simulate with a timeout and then set back to normal
-
       setTimeout(() => {
         setIsCalling(false);
         toast.info("Call ended");
@@ -433,27 +337,21 @@ const Dashboard = ({
     }, 2000);
   };
 
-  // Handle logout
   const handleLogout = async () => {
     try {
       await signOut({ callbackUrl: "/" });
-    } catch (error) {
-      console.error("Error during logout:", error);
-      // Force redirect on error
+    } catch (err) {
+      console.error("Logout error:", err);
       window.location.href = "/";
     }
   };
 
-  // Handle personality change from hamburger menu
   const handlePersonalityChange = (newPersonality: PersonalityKey) => {
     setAiPersonality(newPersonality);
   };
 
-  // Handle hydration properly - don't render until mounted
-  if (!mounted) {
-    return null;
-  }
-
+  // If still SSR or loading
+  if (!mounted) return null;
   if (status === "loading" || isLoading) {
     return (
       <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-900 p-4">
@@ -464,7 +362,6 @@ const Dashboard = ({
           </div>
           <div className="w-6"></div>
         </header>
-
         <div className="p-4">
           <Skeleton className="h-16 w-full mb-6" />
           <Skeleton className="h-96 w-full" />
@@ -475,7 +372,7 @@ const Dashboard = ({
 
   return (
     <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-900">
-      {/* Header - Keep the HamburgerMenu */}
+      {/* Header */}
       <header className="py-3 px-4 border-b dark:border-gray-800 flex justify-between items-center">
         <HamburgerMenu
           currentPersonality={aiPersonality}
@@ -493,14 +390,12 @@ const Dashboard = ({
         </Button>
       </header>
 
-      {/* Calories Status Bar */}
       <CaloriesStatusBar
         caloriesConsumed={caloriesConsumed}
         targetCalories={targetCalories}
         className="mx-4 my-3"
       />
 
-      {/* Error message if loading failed */}
       {loadingError && (
         <div className="bg-red-100 dark:bg-red-900 p-4 m-4 rounded-lg text-red-800 dark:text-red-200">
           <div className="font-medium">Error loading data</div>
@@ -519,53 +414,58 @@ const Dashboard = ({
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto p-4">
-        {/* Chat section - always expanded */}
-        <div className="mb-4 border rounded-lg shadow-sm overflow-hidden">
-          <ChatContainer
-            aiPersonality={aiPersonality}
-            threadId={userProfile?.threadId}
-            assistantId={userProfile?.assistantId}
-            onMealLogged={handleMealLogged}
-            onWeightLogged={handleWeightLogged}
-            isCalling={isCalling}
-            onCall={handlePhoneCall}
-          />
-        </div>
-
-        {/* Today's Meals - collapsible */}
-        <CollapsibleSection title="Today's Meals">
-          <TodaysMeals
-            meals={todaysMeals}
-            isLoading={isRefreshing}
-            onMealDeleted={handleMealLogged}
-          />
-        </CollapsibleSection>
-
-        {/* Progress Chart - collapsible */}
-        <CollapsibleSection title="Progress Chart">
-          <div ref={chartRef} className="relative">
-            <CombinedWeightCalorieChart dateRange={dateRange} />
-
-            {/* Simple date range selector */}
-            <div className="mt-2 flex justify-center">
-              <Tabs
-                value={dateRange}
-                onValueChange={(value) => setDateRange(value as any)}
-              >
-                <TabsList>
-                  <TabsTrigger value="week">Week</TabsTrigger>
-                  <TabsTrigger value="month">Month</TabsTrigger>
-                  <TabsTrigger value="3months">3 Months</TabsTrigger>
-                  <TabsTrigger value="year">Year</TabsTrigger>
-                </TabsList>
-              </Tabs>
-            </div>
-          </div>
-        </CollapsibleSection>
+      <div className="mb-4 border rounded-lg shadow-sm overflow-hidden flex-1">
+        <ChatContainer
+          aiPersonality={aiPersonality}
+          threadId={chatThreadId || undefined}
+          assistantId={assistantId || undefined}
+          onMealLogged={combinedHandleMealLogged}
+          onWeightLogged={handleWeightLogged}
+          isCalling={isCalling}
+          onCall={handlePhoneCall}
+          onThreadInitialized={(newThreadId, newAssistantId) => {
+            // If ChatContainer creates a new thread, store them in state
+            setChatThreadId(newThreadId);
+            setAssistantId(newAssistantId);
+          }}
+        />
       </div>
 
-      {/* Logout confirmation dialog */}
+      {/* Collapsible for today's meals */}
+      <CollapsibleSection title="Today's Meals">
+        <TodaysMeals
+          meals={todaysMeals}
+          isLoading={isRefreshing}
+          onMealDeleted={handleMealLogged}
+        />
+        <div className="mt-2">
+          <Button variant="outline" onClick={handleRefresh}>
+            Refresh Meals
+          </Button>
+        </div>
+      </CollapsibleSection>
+
+      {/* Collapsible for progress chart */}
+      <CollapsibleSection title="Progress Chart">
+        <div className="relative">
+          <CombinedWeightCalorieChart dateRange={dateRange} />
+          <div className="mt-2 flex justify-center">
+            <Tabs
+              value={dateRange}
+              onValueChange={(val) => setDateRange(val as any)}
+            >
+              <TabsList>
+                <TabsTrigger value="week">Week</TabsTrigger>
+                <TabsTrigger value="month">Month</TabsTrigger>
+                <TabsTrigger value="3months">3 Months</TabsTrigger>
+                <TabsTrigger value="year">Year</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
+        </div>
+      </CollapsibleSection>
+
+      {/* Logout dialog */}
       <AlertDialog open={showLogoutDialog} onOpenChange={setShowLogoutDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>

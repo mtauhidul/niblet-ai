@@ -1,4 +1,5 @@
 // lib/auth/authUtils.ts
+import { clearAllMessagesCaches } from "@/lib/ChatHistoryManager";
 import { auth } from "@/lib/firebase/clientApp";
 import {
   browserLocalPersistence,
@@ -13,23 +14,25 @@ import {
 import { createOrUpdateUser } from "../firebase/models/user";
 
 /**
- * Google sign-in function that handles both Firebase and NextAuth
- * with proper redirects
+ * Google sign-in that handles both Firebase Auth and NextAuth,
+ * ensuring the user is stored in Firestore, and sets up a NextAuth session.
  */
 export const signInWithGoogle = async (
   callbackUrl = "/dashboard"
 ): Promise<{ success: boolean; error?: string }> => {
   try {
-    // First sign in with Firebase to create/authenticate the user
+    // Use browserLocalPersistence so the user stays logged in unless they sign out
     await setPersistence(auth, browserLocalPersistence);
 
     const provider = new GoogleAuthProvider();
+    // Force user to pick an account each time
     provider.setCustomParameters({ prompt: "select_account" });
 
+    // 1) Sign in with Firebase
     const result = await signInWithPopup(auth, provider);
     const user = result.user;
 
-    // Store user in Firestore
+    // 2) Create or update user in Firestore
     await createOrUpdateUser({
       id: user.uid,
       name: user.displayName || undefined,
@@ -37,16 +40,16 @@ export const signInWithGoogle = async (
       image: user.photoURL || undefined,
     });
 
-    // Then sign in with NextAuth to establish session
+    // 3) Sign in with NextAuth
     const nextAuthResult = await nextAuthSignIn("google", {
-      redirect: false, // Don't redirect immediately
+      redirect: false, // We'll handle the redirect ourselves
     });
 
     if (nextAuthResult?.error) {
       throw new Error(nextAuthResult.error);
     }
 
-    // Manually redirect to callback URL
+    // 4) Manually redirect to callback URL
     window.location.href = callbackUrl;
     return { success: true };
   } catch (error: any) {
@@ -59,14 +62,17 @@ export const signInWithGoogle = async (
 };
 
 /**
- * Signs out from both Firebase and NextAuth
+ * Sign out from both Firebase and NextAuth, clearing localStorage chat caches.
  */
 export const signOutFromAll = async (): Promise<boolean> => {
   try {
-    // Sign out from Firebase
+    // 1) Clear all chat message caches so user’s conversation is gone
+    clearAllMessagesCaches();
+
+    // 2) Sign out from Firebase
     await auth.signOut();
 
-    // Sign out from NextAuth
+    // 3) Sign out from NextAuth
     await nextAuthSignOut({ callbackUrl: "/" });
 
     return true;

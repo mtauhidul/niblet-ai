@@ -4,6 +4,7 @@
 import type { Meal as BaseMeal } from "@/lib/firebase/models/meal";
 import { Edit, Trash } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 import EditMealModal from "./EditMealModal";
 import NutritionSummary from "./NutritionSummary";
 import {
@@ -78,25 +79,47 @@ const TodaysMeals = ({
   });
 
   // Delete a meal
+  // Updated handleDeleteMeal function with improved error handling
   const handleDeleteMeal = async () => {
     if (!deletingMealId) return;
 
     setIsDeleting(true);
     try {
+      // Make sure to use the correct API endpoint
       const response = await fetch(`/api/meals/${deletingMealId}`, {
         method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+        },
       });
 
-      if (response.ok) {
-        // Call the onMealDeleted callback to refresh the meal list
-        if (onMealDeleted) {
-          onMealDeleted();
+      if (!response.ok) {
+        // Parse error response if available
+        let errorMessage = "Failed to delete meal";
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.message || errorMessage;
+        } catch (e) {
+          // If parsing fails, use status text
+          errorMessage = `Failed to delete meal: ${response.statusText}`;
         }
-      } else {
-        console.error("Failed to delete meal");
+
+        throw new Error(errorMessage);
       }
+
+      // Call the onMealDeleted callback to refresh the meal list
+      if (onMealDeleted) {
+        onMealDeleted();
+      }
+
+      // Show success message
+      toast?.success("Meal deleted successfully");
     } catch (error) {
       console.error("Error deleting meal:", error);
+      // Show error to the user
+      toast?.error(
+        error instanceof Error ? error.message : "Failed to delete meal"
+      );
     } finally {
       setIsDeleting(false);
       setDeletingMealId(null);
