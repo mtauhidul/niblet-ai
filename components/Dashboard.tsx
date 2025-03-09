@@ -4,8 +4,6 @@
 import { useChatManager } from "@/hooks/useChatManager";
 import { PersonalityKey } from "@/lib/assistantService";
 import { getUserProfileById } from "@/lib/auth/authService";
-import { signOutFromAll } from "@/lib/auth/authUtils";
-import { clearAllStorage } from "@/lib/ChatHistoryManager";
 import { db } from "@/lib/firebase/clientApp";
 import type { Meal } from "@/lib/firebase/models/meal";
 import type { UserProfile } from "@/lib/firebase/models/user";
@@ -18,7 +16,7 @@ import {
   Timestamp,
   where,
 } from "firebase/firestore";
-import { ChevronDown, ChevronUp, Settings } from "lucide-react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -28,16 +26,6 @@ import ChatContainer from "./ChatContainer";
 import CombinedWeightCalorieChart from "./CombinedWeightCalorieChart";
 import HamburgerMenu from "./HamburgerMenu";
 import TodaysMeals from "./TodaysMeals";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "./ui/alert-dialog";
 import { Button } from "./ui/button";
 import { Skeleton } from "./ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
@@ -108,7 +96,6 @@ const Dashboard = ({
   const [caloriesConsumed, setCaloriesConsumed] = useState(0);
   const [caloriesRemaining, setCaloriesRemaining] = useState(0);
   const [targetCalories, setTargetCalories] = useState(2000);
-  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
 
@@ -117,7 +104,6 @@ const Dashboard = ({
   >("month");
 
   const [isCalling, setIsCalling] = useState(false);
-  const [showLogoutDialog, setShowLogoutDialog] = useState(false);
 
   const toastShownRef = useRef(false);
   const toastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -172,13 +158,11 @@ const Dashboard = ({
           setCaloriesConsumed(total);
           setCaloriesRemaining(targetCalories - total);
           setIsLoading(false);
-          setIsRefreshing(false);
         },
         (err) => {
           console.error("Error in Firestore listener:", err);
           setLoadingError("Error getting real-time updates. Please refresh.");
           setIsLoading(false);
-          setIsRefreshing(false);
         }
       );
       unsubscribeRef.current = unsubscribe;
@@ -187,7 +171,6 @@ const Dashboard = ({
       console.error("Error setting up listener:", err);
       setLoadingError("Error setting up data connection. Please refresh.");
       setIsLoading(false);
-      setIsRefreshing(false);
       return null;
     }
   }, [session?.user?.id, getTodayDateBounds, targetCalories]);
@@ -195,7 +178,6 @@ const Dashboard = ({
   // Basic manual fetch fallback
   const fetchTodaysMeals = useCallback(async () => {
     if (!session?.user?.id) return;
-    setIsRefreshing(true);
     try {
       const { startOfDay, endOfDay } = getTodayDateBounds;
       const qSnap = await getDocs(
@@ -231,8 +213,6 @@ const Dashboard = ({
     } catch (err) {
       console.error("fetchTodaysMeals error:", err);
       setLoadingError("Failed to refresh data. Please try again.");
-    } finally {
-      setIsRefreshing(false);
     }
   }, [
     session?.user?.id,
@@ -307,13 +287,6 @@ const Dashboard = ({
     }
   }, [loadUserProfile, session?.user?.id]);
 
-  const handleRefresh = useCallback(() => {
-    if (isRefreshing) return;
-    fetchTodaysMeals().then(() => {
-      toast.success("Meal data refreshed");
-    });
-  }, [isRefreshing, fetchTodaysMeals]);
-
   const handlePhoneCall = () => {
     setIsCalling(true);
     toast.info("Connecting to assistant...");
@@ -324,28 +297,6 @@ const Dashboard = ({
         toast.info("Call ended");
       }, 10000);
     }, 2000);
-  };
-
-  // 2) Use signOutFromAll instead of next-auth's signOut
-  const handleLogout = async () => {
-    toast.loading("Signing out...");
-
-    try {
-      // First clear all storage completely to ensure no chat data remains
-      clearAllStorage();
-
-      // Then perform the full signout process
-      const success = await signOutFromAll();
-
-      if (!success) {
-        // Force navigate to home page if normal signout fails
-        window.location.href = "/";
-      }
-    } catch (error) {
-      console.error("Error signing out:", error);
-      // Force redirect to homepage on error
-      window.location.href = "/";
-    }
   };
 
   // Use the chat manager's personality change
@@ -384,13 +335,7 @@ const Dashboard = ({
         <div className="text-2xl font-bold">
           niblet<span className="text-blue-400">.ai</span>
         </div>
-        <Button
-          size="icon"
-          variant="ghost"
-          onClick={() => setShowLogoutDialog(true)}
-        >
-          <Settings className="h-5 w-5" />
-        </Button>
+        <div className="w-6"></div> {/* Empty space for layout balance */}
       </header>
 
       <div className="flex-1 flex flex-col p-4">
@@ -447,17 +392,12 @@ const Dashboard = ({
         </div>
 
         {/* Collapsible for today's meals */}
-        <CollapsibleSection title="Today's Meals">
+        <CollapsibleSection title="Today's Meals" initiallyExpanded={true}>
           <TodaysMeals
             meals={todaysMeals}
-            isLoading={isRefreshing}
             onMealDeleted={handleMealLogged}
+            targetCalories={targetCalories}
           />
-          <div className="mt-2">
-            <Button variant="outline" onClick={handleRefresh}>
-              Refresh Meals
-            </Button>
-          </div>
         </CollapsibleSection>
 
         {/* Collapsible for progress chart */}
@@ -480,24 +420,6 @@ const Dashboard = ({
           </div>
         </CollapsibleSection>
       </div>
-
-      {/* Logout dialog */}
-      <AlertDialog open={showLogoutDialog} onOpenChange={setShowLogoutDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Log out?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to log out of your account?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleLogout}>
-              Log out
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 };

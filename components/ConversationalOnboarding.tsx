@@ -39,10 +39,6 @@ interface ExtractedUserData {
   targetDate?: string | null;
 }
 
-/**
- * ConversationalOnboarding component that guides users through profile setup
- * using a chat-based interface with AI assistance
- */
 const ConversationalOnboarding = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
@@ -220,6 +216,57 @@ const ConversationalOnboarding = () => {
     if (isComplete && threadId && session?.user?.id) {
       const completeOnboarding = async () => {
         try {
+          // Calculate target calories based on profile data
+          let targetCalories = 0;
+
+          if (
+            extractedData.currentWeight &&
+            extractedData.height &&
+            extractedData.age
+          ) {
+            // Simple BMR calculation based on weight (in lbs), height (in inches), and age
+            // Using a modified Harris-Benedict equation
+            const weight = extractedData.currentWeight;
+            const height = extractedData.height;
+            const age = extractedData.age;
+
+            // Base BMR calculation (very simplified)
+            const bmr =
+              10 * (weight * 0.453592) + 6.25 * (height * 2.54) - 5 * age;
+
+            // Activity multiplier
+            let activityMultiplier = 1.2; // Default sedentary
+            if (extractedData.activityLevel) {
+              const level = extractedData.activityLevel.toLowerCase();
+              if (level.includes("lightly active")) activityMultiplier = 1.375;
+              else if (level.includes("moderately active"))
+                activityMultiplier = 1.55;
+              else if (level.includes("very active"))
+                activityMultiplier = 1.725;
+              else if (level.includes("extremely active"))
+                activityMultiplier = 1.9;
+            }
+
+            // Adjust for weight goal
+            targetCalories = Math.round(bmr * activityMultiplier);
+
+            // If weight loss goal, create a moderate deficit
+            if (
+              extractedData.targetWeight &&
+              extractedData.targetWeight < extractedData.currentWeight
+            ) {
+              targetCalories -= 500; // Standard deficit for ~1lb/week loss
+            }
+          } else {
+            // Default if we can't calculate
+            targetCalories = 2000;
+          }
+
+          // Calculate macros based on target calories
+          const targetProtein = Math.round((targetCalories * 0.3) / 4); // 30% protein
+          const targetFat = Math.round((targetCalories * 0.3) / 9); // 30% fat
+          const targetCarbs = Math.round((targetCalories * 0.4) / 4); // 40% carbs
+
           // Save all the onboarding data to user profile
           await createOrUpdateUserProfile(session.user.id, {
             onboardingThreadId: threadId,
@@ -233,6 +280,10 @@ const ConversationalOnboarding = () => {
             activityLevel: extractedData.activityLevel || undefined,
             dietaryPreferences: extractedData.dietaryPreferences || undefined,
             goalType: extractedData.targetWeight ? "Weight Loss" : undefined,
+            targetCalories: targetCalories,
+            targetProtein: targetProtein,
+            targetCarbs: targetCarbs,
+            targetFat: targetFat,
           });
 
           // Wait a moment to show the final message
@@ -553,18 +604,13 @@ const ConversationalOnboarding = () => {
     }
   };
 
-  // Prevent hydration errors by not rendering until mounted
-  useEffect(() => {
-    // Mounted is already handled by the auth check
-  }, []);
-
   if (isInitializing) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900">
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
           <p className="mt-4 text-gray-600 dark:text-gray-300">
-            Getting your onboarding ready...
+            Let's get your account set up...
           </p>
         </div>
       </div>
@@ -589,8 +635,11 @@ const ConversationalOnboarding = () => {
         <Progress value={(onboardingStep / 6) * 100} className="h-2" />
       </div>
 
-      {/* Chat Container */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      {/* Chat Container - Fixed max height */}
+      <div
+        className="flex-1 overflow-y-auto p-4 space-y-4"
+        style={{ maxHeight: "calc(100vh - 200px)" }}
+      >
         {/* Error message */}
         {error && (
           <div className="mx-auto bg-red-100 dark:bg-red-900 p-3 rounded-lg text-center">
@@ -639,7 +688,7 @@ const ConversationalOnboarding = () => {
           <div className="text-center p-4">
             <div className="w-16 h-16 border-4 border-green-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
             <p className="mb-4 text-lg font-semibold">
-              Setting up your profile...
+              Creating and warming up your account...
             </p>
             <p className="text-gray-500 dark:text-gray-400">
               You'll be redirected to your dashboard in a moment

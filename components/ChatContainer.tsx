@@ -9,6 +9,7 @@ import {
   getOrCreateAssistant,
   PersonalityKey,
   runAssistant,
+  transcribeAudio,
 } from "@/lib/assistantService";
 import {
   getMessagesFromCache,
@@ -34,16 +35,21 @@ interface ChatContainerProps {
   onWeightLogged?: () => void;
   isCalling?: boolean;
   onCall?: () => void;
-  /**
-   * If we create a new thread, we notify the parent with the new IDs.
-   */
   onThreadInitialized?: (threadId: string, assistantId: string) => void;
 }
 
 // Helper to fix up text
 function formatChatText(text: string): string {
-  // Example transformation: ensure "i" is capitalized
-  return text.replace(/\b(i)\b/g, "I");
+  // Ensure "i" is capitalized and first letter of sentences
+  let formattedText = text.replace(/\b(i)\b/g, "I");
+
+  // Also ensure first letter of sentence is capitalized
+  formattedText = formattedText.replace(
+    /(^\s*|[.!?]\s+)([a-z])/g,
+    (match, p1, p2) => p1 + p2.toUpperCase()
+  );
+
+  return formattedText;
 }
 
 const ChatContainer: React.FC<ChatContainerProps> = ({
@@ -104,7 +110,10 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
             canEdit: true,
           };
           const meal = await createMeal(mealData);
+
+          // Direct success, no confirmation needed
           onMealLogged?.();
+
           return {
             success: true,
             mealId: meal.id,
@@ -425,7 +434,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
     fileInputRef.current?.click();
   };
 
-  // Example image upload
+  // Image upload
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -518,7 +527,117 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
     }
   };
 
-  // For brevity, omitting voice record code. Same logic: add user message, run assistant, save to localStorage.
+  // Voice recording functionality
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+      const chunks: BlobPart[] = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          chunks.push(e.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        if (processInProgress.current) return;
+        processInProgress.current = true;
+
+        try {
+          const audioBlob = new Blob(chunks, { type: "audio/webm" });
+          setIsTyping(true);
+
+          // Transcribe audio
+          const transcribedText = await transcribeAudio(audioBlob);
+          if (!transcribedText) throw new Error("Failed to transcribe audio");
+
+          // Format and set as user message
+          const formattedText = formatChatText(transcribedText);
+          const userMessage: Message = {
+            id: `user-${Date.now()}`,
+            role: "user",
+            content: formattedText,
+            timestamp: new Date(),
+          };
+
+          // Update UI with user message
+          const updatedMessages = [...messages, userMessage];
+          setMessages(updatedMessages);
+          saveMessagesToCache(threadId || "", updatedMessages);
+
+          // Process with assistant
+          if (!threadId || !assistantId)
+            throw new Error("Missing thread or assistant ID");
+
+          // Send to thread
+          const messageAdded = await addMessageToThread(
+            threadId,
+            formattedText
+          );
+          if (!messageAdded) throw new Error("Failed to send message");
+
+          // Get assistant response
+          const assistantMessages = await runAssistant(
+            threadId,
+            assistantId,
+            aiPersonality,
+            handleToolCalls
+          );
+
+          if (assistantMessages && assistantMessages.length > 0) {
+            const latestMsg = assistantMessages[assistantMessages.length - 1];
+            const assistantResponse: Message = {
+              id: latestMsg.id,
+              role: "assistant",
+              content: latestMsg.content,
+              timestamp: latestMsg.createdAt,
+            };
+            const finalList = [...updatedMessages, assistantResponse];
+            setMessages(finalList);
+            saveMessagesToCache(threadId, finalList);
+          }
+        } catch (error) {
+          console.error("Error processing voice recording:", error);
+          setError(
+            "Sorry, I couldn't process your voice message. Please try again."
+          );
+        } finally {
+          setIsTyping(false);
+          processInProgress.current = false;
+        }
+      };
+
+      recorder.start();
+      setMediaRecorder(recorder);
+      setIsRecording(true);
+    } catch (error) {
+      console.error("Error starting recording:", error);
+      setError(
+        "I couldn't access your microphone. Please check your browser permissions."
+      );
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorder && isRecording) {
+      mediaRecorder.stop();
+      setIsRecording(false);
+
+      // Stop all audio tracks
+      if (mediaRecorder.stream) {
+        mediaRecorder.stream.getTracks().forEach((track) => track.stop());
+      }
+    }
+  };
+
+  const toggleRecording = () => {
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  };
 
   return (
     <div className="flex flex-col h-full">
@@ -530,8 +649,11 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
         onChange={handleFileSelect}
       />
 
-      {/* MESSAGES */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      {/* MESSAGES - Fixed height container */}
+      <div
+        className="flex-1 overflow-y-auto p-4 space-y-4"
+        style={{ maxHeight: "calc(100vh - 170px)" }}
+      >
         {error && (
           <div className="mx-auto bg-red-100 dark:bg-red-900 p-3 rounded-lg text-center">
             {error}
@@ -664,10 +786,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
           <Button
             size="icon"
             variant={isRecording ? "destructive" : "outline"}
-            onClick={() => {
-              // startRecording() / stopRecording() logic here
-              setIsRecording(!isRecording);
-            }}
+            onClick={toggleRecording}
             disabled={isTyping || isUploading || processInProgress.current}
           >
             {isRecording ? (

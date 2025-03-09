@@ -11,6 +11,8 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { PersonalityKey } from "@/lib/assistantService";
+import { signOutFromAll } from "@/lib/auth/authUtils";
+import { clearAllStorage } from "@/lib/ChatHistoryManager";
 import { createOrUpdateUserProfile } from "@/lib/firebase/models/user";
 import {
   ChevronRight,
@@ -30,10 +32,6 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Label } from "./ui/label";
 import { Switch } from "./ui/switch";
-
-// 1) Import our custom signOutFromAll function
-import { signOutFromAll } from "@/lib/auth/authUtils";
-import { clearAllStorage } from "@/lib/ChatHistoryManager";
 
 interface HamburgerMenuProps {
   currentPersonality?: PersonalityKey;
@@ -94,7 +92,7 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
     setIsOpen(false);
   };
 
-  // 2) Use signOutFromAll instead of next-auth's signOut
+  // Comprehensive sign out function
   const handleSignOut = async () => {
     toast.loading("Signing out...");
 
@@ -115,17 +113,6 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
       window.location.href = "/";
     }
   };
-
-  // const handleLogout = async () => {
-  //   try {
-  //     // Use the enhanced sign out function
-  //     clearAllStorage();
-  //     await signOutFromAll();
-  //   } catch (err) {
-  //     console.error("Logout error:", err);
-  //     window.location.href = "/";
-  //   }
-  // };
 
   const exportData = () => {
     toast.info("Preparing your data export...");
@@ -210,6 +197,13 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
         setIsOpen(false);
       },
     },
+    // Add logout here in the menu
+    {
+      label: "Sign Out",
+      icon: <LogOut className="h-5 w-5" />,
+      onClick: handleSignOut,
+      className: "text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20",
+    },
   ];
 
   // AI personality options
@@ -288,7 +282,9 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="w-full justify-start text-left py-1.5 h-auto group"
+                      className={`w-full justify-start text-left py-1.5 h-auto group ${
+                        item.className || ""
+                      }`}
                       onClick={item.onClick}
                     >
                       <span className="flex items-center">
@@ -391,17 +387,6 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
               </div>
             </div>
           )}
-
-          {/* Sign Out Button */}
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950 dark:hover:text-red-300"
-            onClick={handleSignOut}
-          >
-            <LogOut className="mr-2 h-4 w-4" />
-            Sign Out
-          </Button>
         </div>
       </SheetContent>
     </Sheet>

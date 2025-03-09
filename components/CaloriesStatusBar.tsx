@@ -42,11 +42,7 @@ const CaloriesStatusBar: React.FC<CaloriesStatusBarProps> = ({
     <Card
       className={`overflow-hidden ${className} h-12 p-0 m-0 mb-2 shadow-sm`}
     >
-      {" "}
-      {/* Reduced height, removed padding & margin */}
       <div className="relative h-full">
-        {" "}
-        {/* Full height container */}
         {/* Background progress bar with rounded corners */}
         <motion.div
           className={`absolute rounded-sm ${getBackgroundColor()}`}

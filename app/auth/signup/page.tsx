@@ -12,7 +12,6 @@ export default function SignUpPage() {
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
-  const [isFacebookLoading, setIsFacebookLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
 
   const router = useRouter();
@@ -53,22 +52,6 @@ export default function SignUpPage() {
       console.error("Error signing up:", error);
       setError("Failed to sign up with Google");
       setIsGoogleLoading(false);
-      setIsLoading(false);
-    }
-  };
-
-  // Handle Facebook sign in directly with NextAuth
-  const handleFacebookSignIn = async () => {
-    try {
-      setIsFacebookLoading(true);
-      setIsLoading(true);
-      // Use the standard NextAuth signIn method, redirect to onboarding for new users
-      await signIn("facebook", { callbackUrl: "/onboarding" });
-      // No need to handle success as NextAuth will redirect
-    } catch (error) {
-      console.error("Error signing up:", error);
-      setError("Failed to sign up with Facebook");
-      setIsFacebookLoading(false);
       setIsLoading(false);
     }
   };
@@ -144,25 +127,20 @@ export default function SignUpPage() {
               {isGoogleLoading ? "Signing up..." : "Sign up with Google"}
             </Button>
 
-            {/* Facebook Sign Up Button */}
+            {/* Facebook Sign Up Button - Disabled Placeholder */}
             <Button
               variant="outline"
-              className="w-full flex items-center justify-center gap-2 bg-[#1877F2] hover:bg-[#166FE5] text-white"
-              onClick={handleFacebookSignIn}
-              disabled={isLoading}
+              className="w-full flex items-center justify-center gap-2 bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400 cursor-not-allowed opacity-70"
+              disabled={true}
             >
-              {isFacebookLoading ? (
-                <div className="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full"></div>
-              ) : (
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 320 512"
-                  className="h-5 w-5 fill-current"
-                >
-                  <path d="M279.14 288l14.22-92.66h-88.91v-60.13c0-25.35 12.42-50.06 52.24-50.06h40.42V6.26S260.43 0 225.36 0c-73.22 0-121.08 44.38-121.08 124.72v70.62H22.89V288h81.39v224h100.17V288z" />
-                </svg>
-              )}
-              {isFacebookLoading ? "Signing up..." : "Sign up with Facebook"}
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 320 512"
+                className="h-5 w-5 fill-current"
+              >
+                <path d="M279.14 288l14.22-92.66h-88.91v-60.13c0-25.35 12.42-50.06 52.24-50.06h40.42V6.26S260.43 0 225.36 0c-73.22 0-121.08 44.38-121.08 124.72v70.62H22.89V288h81.39v224h100.17V288z" />
+              </svg>
+              Sign up with Facebook (Coming Soon)
             </Button>
           </div>
 
