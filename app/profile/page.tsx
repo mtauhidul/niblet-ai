@@ -1,5 +1,7 @@
+// Modified version of app/profile/page.tsx with DeleteAccountSection
 "use client";
 
+import DeleteAccountSection from "@/components/DeleteAccountSection";
 import HamburgerMenu from "@/components/HamburgerMenu";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -373,7 +375,7 @@ export default function ProfilePage() {
         </Card>
 
         {/* Save Button */}
-        <div className="flex justify-end">
+        <div className="flex justify-end mb-10">
           <Button
             onClick={saveProfile}
             disabled={isSaving}
@@ -382,6 +384,11 @@ export default function ProfilePage() {
             <Save className="h-4 w-4" />
             {isSaving ? "Saving..." : "Save Changes"}
           </Button>
+        </div>
+
+        {/* Delete Account Section */}
+        <div className="mt-10">
+          <DeleteAccountSection />
         </div>
       </div>
     </div>

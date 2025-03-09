@@ -1,8 +1,9 @@
-// lib/auth/authUtils.ts
+// Enhanced version of lib/auth/authUtils.ts with account deletion function
 import { clearAllMessagesCaches } from "@/lib/ChatHistoryManager";
 import { auth } from "@/lib/firebase/clientApp";
 import {
   browserLocalPersistence,
+  deleteUser,
   GoogleAuthProvider,
   setPersistence,
   signInWithPopup,
@@ -148,5 +149,60 @@ export const signOutFromAll = async (): Promise<boolean> => {
     // Force logout by redirecting anyway
     window.location.href = "/";
     return false;
+  }
+};
+
+/**
+ * Delete user account from both Firebase and the database,
+ * then sign out and redirect to home page.
+ */
+export const deleteUserAccount = async (): Promise<boolean> => {
+  try {
+    if (typeof window === "undefined") return false;
+
+    console.log("Starting account deletion process...");
+
+    // 1. Call the API endpoint to delete all user data in the database
+    const response = await fetch("/api/user/delete", {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.message || "Failed to delete account data");
+    }
+
+    // 2. Get the current Firebase auth user
+    const currentUser = auth.currentUser;
+    if (currentUser) {
+      // 3. Delete the Firebase auth user
+      await deleteUser(currentUser);
+      console.log("Firebase Auth user deleted");
+    }
+
+    // 4. Clear all local storage and caches
+    clearAllMessagesCaches();
+    localStorage.clear();
+    sessionStorage.clear();
+    console.log("All local storage cleared");
+
+    // 5. Sign out from NextAuth
+    await nextAuthSignOut({ callbackUrl: "/" });
+    console.log("Signed out from NextAuth");
+
+    // 6. Redirect to home page (fallback)
+    setTimeout(() => {
+      window.location.href = "/";
+    }, 500);
+
+    return true;
+  } catch (error) {
+    console.error("Account deletion error:", error);
+
+    // Rethrow the error to be handled by the UI component
+    throw error;
   }
 };

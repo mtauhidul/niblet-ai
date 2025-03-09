@@ -268,23 +268,49 @@ const ConversationalOnboarding = () => {
           const targetCarbs = Math.round((targetCalories * 0.4) / 4); // 40% carbs
 
           // Save all the onboarding data to user profile
-          await createOrUpdateUserProfile(session.user.id, {
+          // Create an initial data object
+          const profileData: Record<string, any> = {
             onboardingThreadId: threadId,
             onboardingCompleted: true,
-            name: extractedData.name,
-            age: extractedData.age || undefined,
-            gender: extractedData.gender || undefined,
-            currentWeight: extractedData.currentWeight || undefined,
-            targetWeight: extractedData.targetWeight || undefined,
-            height: extractedData.height || undefined,
-            activityLevel: extractedData.activityLevel || undefined,
-            dietaryPreferences: extractedData.dietaryPreferences || undefined,
-            goalType: extractedData.targetWeight ? "Weight Loss" : undefined,
             targetCalories: targetCalories,
             targetProtein: targetProtein,
             targetCarbs: targetCarbs,
             targetFat: targetFat,
-          });
+          };
+
+          // Only add fields that have actual values
+          if (extractedData.name) profileData.name = extractedData.name;
+          if (extractedData.age !== null && extractedData.age !== undefined)
+            profileData.age = extractedData.age;
+          if (extractedData.gender) profileData.gender = extractedData.gender;
+          if (
+            extractedData.currentWeight !== null &&
+            extractedData.currentWeight !== undefined
+          )
+            profileData.currentWeight = extractedData.currentWeight;
+          if (
+            extractedData.targetWeight !== null &&
+            extractedData.targetWeight !== undefined
+          )
+            profileData.targetWeight = extractedData.targetWeight;
+          if (
+            extractedData.height !== null &&
+            extractedData.height !== undefined
+          )
+            profileData.height = extractedData.height;
+          if (extractedData.activityLevel)
+            profileData.activityLevel = extractedData.activityLevel;
+          if (
+            extractedData.dietaryPreferences &&
+            extractedData.dietaryPreferences.length > 0
+          )
+            profileData.dietaryPreferences = extractedData.dietaryPreferences;
+
+          // Set goal type only if there's a target weight
+          if (extractedData.targetWeight) profileData.goalType = "Weight Loss";
+
+          // Now send only the fields with actual values to Firestore
+          await createOrUpdateUserProfile(session.user.id, profileData);
 
           // Wait a moment to show the final message
           setTimeout(() => {
