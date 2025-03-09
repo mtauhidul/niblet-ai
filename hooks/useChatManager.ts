@@ -1,17 +1,20 @@
-// lib/useChatManager.ts
+// hooks/useChatManager.ts - Enhanced version with better persistence
 import { PersonalityKey } from "@/lib/assistantService";
 import {
+  extractAndStoreAILearning,
+  getLastActiveThreadId,
   getMessagesFromCache,
   saveMessagesToCache,
+  updateSessionData,
 } from "@/lib/ChatHistoryManager";
 import { createOrUpdateUserProfile } from "@/lib/firebase/models/user";
 import { Message } from "@/types/chat";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 /**
- * A custom hook that manages chat state across the application
- * Handles initialization, persistence, and restoration of chat state
+ * Enhanced custom hook that manages chat state across the application
+ * with improved persistence across route changes
  */
 export const useChatManager = (userId?: string | null) => {
   const [threadId, setThreadId] = useState<string | null>(null);
@@ -21,14 +24,74 @@ export const useChatManager = (userId?: string | null) => {
   const [isInitializing, setIsInitializing] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Use a ref to track if we've already initialized to avoid double initialization
+  const isInitializedRef = useRef<boolean>(false);
+  // Track if we're preserving the session
+  const preservingSession = useRef<boolean>(false);
+
   // Initialize chat - either loads existing chat or creates a new one
   const initializeChat = useCallback(async () => {
     if (!userId) return;
+    if (isInitializedRef.current) return; // Prevent double initialization
 
     setIsInitializing(true);
     setError(null);
+    isInitializedRef.current = true;
 
     try {
+      // First check for an active session from localStorage
+      const lastActiveThreadId = getLastActiveThreadId();
+
+      // If we have an active thread ID, try to restore that session first
+      if (lastActiveThreadId) {
+        console.log(
+          `Attempting to restore active session with thread: ${lastActiveThreadId}`
+        );
+
+        try {
+          // Try to load messages from cache
+          const cachedMessages = getMessagesFromCache(lastActiveThreadId);
+
+          if (cachedMessages && cachedMessages.length > 0) {
+            preservingSession.current = true;
+
+            // Get assistant ID from profile or cache
+            let cachedAssistantId = null;
+
+            // Try to find assistant ID in user profile
+            const response = await fetch("/api/user/profile");
+            if (response.ok) {
+              const userProfile = await response.json();
+              if (userProfile.assistantId) {
+                cachedAssistantId = userProfile.assistantId;
+
+                if (userProfile.aiPersonality) {
+                  setPersonality(userProfile.aiPersonality as PersonalityKey);
+                }
+              }
+            }
+
+            // If we have both thread and assistant ID, restore the session
+            if (cachedAssistantId) {
+              setThreadId(lastActiveThreadId);
+              setAssistantId(cachedAssistantId);
+              setMessages(cachedMessages);
+              setIsInitializing(false);
+              console.log("Successfully restored previous chat session");
+              return;
+            }
+          }
+        } catch (err) {
+          console.error("Error restoring cached session:", err);
+          // Continue to normal initialization if restoration fails
+        }
+      }
+
+      // If we get here, either there was no active session or restoration failed
+      console.log(
+        "No active session found or restoration failed, loading from profile..."
+      );
+
       // Try to load user profile to get existing threadId/assistantId
       const response = await fetch("/api/user/profile");
       if (response.ok) {
@@ -47,6 +110,8 @@ export const useChatManager = (userId?: string | null) => {
           const cachedMessages = getMessagesFromCache(userProfile.threadId);
           if (cachedMessages && cachedMessages.length > 0) {
             setMessages(cachedMessages);
+            // Update session data to mark this thread as active
+            updateSessionData(userProfile.threadId);
             setIsInitializing(false);
             return;
           }
@@ -65,6 +130,7 @@ export const useChatManager = (userId?: string | null) => {
 
               setMessages(fetchedMessages);
               saveMessagesToCache(userProfile.threadId, fetchedMessages);
+              updateSessionData(userProfile.threadId);
               setIsInitializing(false);
               return;
             }
@@ -90,6 +156,7 @@ export const useChatManager = (userId?: string | null) => {
     } finally {
       setIsInitializing(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, personality]);
 
   // Create a new chat thread and get initial welcome message
@@ -129,6 +196,7 @@ export const useChatManager = (userId?: string | null) => {
 
           setMessages([welcomeMsg]);
           saveMessagesToCache(data.threadId, [welcomeMsg]);
+          updateSessionData(data.threadId);
         }
       } catch (error) {
         console.error("Error creating new chat:", error);
@@ -175,6 +243,10 @@ export const useChatManager = (userId?: string | null) => {
         const updatedMessages = [...messages, systemMsg];
         setMessages(updatedMessages);
         saveMessagesToCache(threadId, updatedMessages);
+        updateSessionData(threadId);
+
+        // Extract learning data from messages
+        extractAndStoreAILearning(threadId, updatedMessages);
 
         toast.success(
           `AI personality changed to ${newPersonality.replace("-", " ")}`
@@ -195,6 +267,13 @@ export const useChatManager = (userId?: string | null) => {
       const updatedMessages = [...messages, message];
       setMessages(updatedMessages);
       saveMessagesToCache(threadId, updatedMessages);
+      updateSessionData(threadId);
+
+      // Extract learning data from messages after a certain threshold
+      // This ensures we don't do unnecessary processing for every message
+      if (updatedMessages.length % 5 === 0) {
+        extractAndStoreAILearning(threadId, updatedMessages);
+      }
     },
     [threadId, messages]
   );
@@ -203,15 +282,26 @@ export const useChatManager = (userId?: string | null) => {
   const clearChat = useCallback(async () => {
     if (!userId) return;
 
+    // First extract learning data before clearing
+    if (threadId && messages.length > 0) {
+      extractAndStoreAILearning(threadId, messages);
+    }
+
     // Create a new chat with the current personality
     await createNewChat(personality);
     toast.success("Chat history cleared");
-  }, [userId, personality, createNewChat]);
+  }, [userId, personality, createNewChat, threadId, messages]);
 
-  // Initialize on mount
+  // Initialize on mount or when userId changes
   useEffect(() => {
-    if (userId) {
+    if (userId && !isInitializedRef.current) {
       initializeChat();
+    }
+
+    // Reset the ref when userId changes (login/logout)
+    if (!userId) {
+      isInitializedRef.current = false;
+      preservingSession.current = false;
     }
   }, [userId, initializeChat]);
 
@@ -227,5 +317,6 @@ export const useChatManager = (userId?: string | null) => {
     changePersonality,
     addMessage,
     clearChat,
+    preservingSession: preservingSession.current,
   };
 };

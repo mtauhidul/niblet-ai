@@ -89,6 +89,7 @@ const Dashboard = ({
     isInitializing: isChatInitializing,
     error: chatError,
     changePersonality,
+    preservingSession,
   } = useChatManager(session?.user?.id);
 
   // Calories / meals data
@@ -387,6 +388,7 @@ const Dashboard = ({
               onWeightLogged={handleWeightLogged}
               isCalling={isCalling}
               onCall={handlePhoneCall}
+              preservingSession={preservingSession} // New prop from useChatManager
             />
           )}
         </div>

@@ -1,4 +1,4 @@
-// Enhanced version of lib/auth/authUtils.ts with account deletion function
+// lib/auth/authUtils.ts - Enhanced with better logout handling
 import { clearAllMessagesCaches } from "@/lib/ChatHistoryManager";
 import { auth } from "@/lib/firebase/clientApp";
 import {
@@ -63,8 +63,17 @@ export const signInWithGoogle = async (
 };
 
 /**
+ * Extract and store AI learning data from chat histories before clearing them
+ */
+const extractLearningDataBeforeClear = (): void => {
+  // Using the enhanced clearAllMessagesCaches function which now preserves learning data
+  console.log("Extracting AI learning data before clearing messages...");
+  // The logic is now contained in the clearAllMessagesCaches function
+};
+
+/**
  * Sign out from both Firebase and NextAuth, clearing localStorage chat caches.
- * This enhanced version ensures ALL chat data is removed completely.
+ * This enhanced version ensures chat data is cleared but AI learning data is preserved.
  */
 export const signOutFromAll = async (): Promise<boolean> => {
   try {
@@ -72,72 +81,21 @@ export const signOutFromAll = async (): Promise<boolean> => {
 
     console.log("Starting comprehensive sign out process...");
 
-    // 1) Clear all chat message caches
+    // 1) Extract AI learning data from message caches before clearing
+    extractLearningDataBeforeClear();
+
+    // 2) Clear all chat message caches (preserving learning data)
     clearAllMessagesCaches();
 
-    // 2) Aggressively clear all related storage
-    const totalKeys = localStorage.length;
-    const removedKeys: string[] = [];
-
-    // First, gather all keys that match our patterns
-    const chatPatterns = [
-      /^niblet_/,
-      /assistant_/,
-      /thread/i,
-      /chat/i,
-      /message/i,
-      /cache/i,
-      /personality/i,
-      /^user_/,
-    ];
-
-    // Get all keys to remove
-    const keysToRemove: string[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (!key) continue;
-
-      // Check if the key matches any of our patterns
-      if (chatPatterns.some((pattern) => pattern.test(key))) {
-        keysToRemove.push(key);
-      }
-    }
-
-    // Now remove all the keys
-    keysToRemove.forEach((key) => {
-      try {
-        localStorage.removeItem(key);
-        removedKeys.push(key);
-      } catch (err) {
-        console.error(`Failed to remove key: ${key}`, err);
-      }
-    });
-
-    console.log(
-      `Cleared ${removedKeys.length} of ${totalKeys} items from localStorage`
-    );
-    console.log("Removed keys:", removedKeys);
-
-    // 3) For complete certainty, clear sessionStorage too
-    try {
-      sessionStorage.clear();
-      console.log("Cleared session storage");
-    } catch (err) {
-      console.error("Failed to clear session storage:", err);
-    }
-
-    // 4) Clear any indexedDB stores related to our app
-    // This is more complex and would need implementation specific to any IndexedDB usage
-
-    // 5) Sign out from Firebase
+    // 3) Sign out from Firebase
     await auth.signOut();
     console.log("Signed out from Firebase");
 
-    // 6) Sign out from NextAuth with redirect
+    // 4) Sign out from NextAuth with redirect
     await nextAuthSignOut({ callbackUrl: "/" });
     console.log("Signed out from NextAuth");
 
-    // 7) As a fallback, reload the page if redirect doesn't happen
+    // 5) As a fallback, reload the page if redirect doesn't happen
     setTimeout(() => {
       window.location.href = "/";
     }, 500);

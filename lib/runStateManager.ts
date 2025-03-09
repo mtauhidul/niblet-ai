@@ -15,7 +15,7 @@ interface RunState {
 class RunStateManager {
   private static instance: RunStateManager;
   private runStates: Map<string, RunState> = new Map();
-  private timeoutDuration = 30000; // Default timeout of 30 seconds
+  private timeoutDuration = 60000; // 60 seconds
 
   private constructor() {
     // Start a cleanup process to clear stale run states
@@ -145,16 +145,14 @@ class RunStateManager {
    * Extract run ID from OpenAI error message
    */
   public extractRunIdFromError(errorMessage: string): string | null {
-    const runIdMatch = errorMessage.match(/run_([\w]+)/);
+    const runIdMatch = errorMessage.match(/run\s+(\w+)\s+is active/);
     if (runIdMatch && runIdMatch[1]) {
-      return `run_${runIdMatch[1]}`;
+      return runIdMatch[1];
     }
     return null;
   }
 
-  /**
-   * Update the timeout duration
-   */
+  // Add a method to allow changing the timeout
   public setTimeoutDuration(milliseconds: number): void {
     this.timeoutDuration = milliseconds;
   }

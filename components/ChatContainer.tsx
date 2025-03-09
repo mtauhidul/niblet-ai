@@ -1,4 +1,4 @@
-// components/ChatContainer.tsx
+// components/ChatContainer.tsx - Enhanced with better session persistence
 "use client";
 
 import { Button } from "@/components/ui/button";
@@ -12,12 +12,16 @@ import {
   transcribeAudio,
 } from "@/lib/assistantService";
 import {
+  extractAndStoreAILearning,
+  getAILearningData,
   getMessagesFromCache,
   saveMessagesToCache,
+  updateSessionData,
 } from "@/lib/ChatHistoryManager";
 import { createMeal } from "@/lib/firebase/models/meal";
 import { createOrUpdateUserProfile } from "@/lib/firebase/models/user";
 import { logWeight } from "@/lib/firebase/models/weightLog";
+import runStateManager from "@/lib/runStateManager";
 import { cn } from "@/lib/utils";
 import { Message } from "@/types/chat";
 import { Camera, Mic, MicOff, Phone, Send } from "lucide-react";
@@ -36,20 +40,21 @@ interface ChatContainerProps {
   isCalling?: boolean;
   onCall?: () => void;
   onThreadInitialized?: (threadId: string, assistantId: string) => void;
+  preservingSession?: boolean; // New prop to indicate if we're preserving a session
 }
 
 // Helper to fix up text
 function formatChatText(text: string): string {
-  // Ensure "i" is capitalized and first letter of sentences
-  let formattedText = text.replace(/\b(i)\b/g, "I");
+  // Ensure "i" is capitalized when it's a standalone word
+  const capitalizedText = text.replace(/\b(i)\b/g, "I");
 
   // Also ensure first letter of sentence is capitalized
-  formattedText = formattedText.replace(
+  const firstLetterCapitalized = capitalizedText.replace(
     /(^\s*|[.!?]\s+)([a-z])/g,
     (match, p1, p2) => p1 + p2.toUpperCase()
   );
 
-  return formattedText;
+  return firstLetterCapitalized;
 }
 
 const ChatContainer: React.FC<ChatContainerProps> = ({
@@ -61,6 +66,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   isCalling = false,
   onCall,
   onThreadInitialized,
+  preservingSession = false,
 }) => {
   const { data: session } = useSession();
 
@@ -88,6 +94,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const processInProgress = useRef<boolean>(false);
   const initializationAttempted = useRef<boolean>(false);
+  const sessionRestored = useRef<boolean>(preservingSession);
 
   // If the assistant calls any "tools" like logging a meal, do that here:
   const handleToolCalls = useCallback(
@@ -184,6 +191,23 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
           currentAssistantId = propAssistantId;
         }
 
+        // If this is a preserved session, we skip most of the initialization
+        if (preservingSession && sessionRestored.current) {
+          console.log("Using preserved session, skipping full initialization");
+
+          // We still need to load messages from cache
+          if (currentThreadId) {
+            const cachedMessages = getMessagesFromCache(currentThreadId);
+            if (cachedMessages && cachedMessages.length > 0) {
+              setMessages(cachedMessages);
+              updateSessionData(currentThreadId);
+              setIsInitialized(true);
+              setIsTyping(false);
+              return;
+            }
+          }
+        }
+
         // If we already have a thread, try to load from localStorage
         if (currentThreadId && currentAssistantId) {
           console.log("Using existing thread + assistant IDs:", {
@@ -201,6 +225,10 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
             setMessages(cachedMessages);
             setIsInitialized(true);
             setIsTyping(false);
+
+            // Mark this thread as the active one in the session
+            updateSessionData(currentThreadId);
+            sessionRestored.current = true;
             return;
           }
 
@@ -220,6 +248,10 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
                 saveMessagesToCache(currentThreadId, fetchedMessages);
                 setIsInitialized(true);
                 setIsTyping(false);
+
+                // Mark this thread as the active one in the session
+                updateSessionData(currentThreadId);
+                sessionRestored.current = true;
                 return;
               } else {
                 // If no messages exist on the server, we need to run the assistant for a greeting
@@ -250,6 +282,10 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
                   saveMessagesToCache(currentThreadId, initialMsgs);
                   setIsInitialized(true);
                   setIsTyping(false);
+
+                  // Mark this thread as the active one in the session
+                  updateSessionData(currentThreadId);
+                  sessionRestored.current = true;
                   return;
                 }
               }
@@ -258,6 +294,14 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
             console.error("Error fetching messages from server:", err);
             // Continue to create a welcome message if fetch fails
           }
+        }
+
+        // If we got here, we didn't have a valid session or couldn't restore
+        // If preservingSession was true, show a message to the user
+        if (preservingSession && !sessionRestored.current) {
+          console.log("Failed to restore preserved session, creating new one");
+          // Maybe show a toast or message to the user
+          toast.info("Creating a new conversation session");
         }
 
         // If we do not have a thread yet, create one
@@ -283,6 +327,10 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
           aiPersonality: aiPersonality,
         });
 
+        // Include any previous learning data for this user for continuity
+        const previousLearningData = getAILearningData(newThreadId);
+        console.log("Previous learning data:", previousLearningData);
+
         // Start chat with system-initiated welcome, not waiting for user to say "hello"
         // Run the assistant directly without sending a user message first
         const assistantMessages = await runAssistant(
@@ -304,6 +352,9 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
           ];
           setMessages(initialMsgs);
           saveMessagesToCache(newThreadId, initialMsgs);
+          // Mark this thread as the active one in the session
+          updateSessionData(newThreadId);
+          sessionRestored.current = true;
         } else {
           // Fallback greeting if the assistant doesn't respond
           const fallbackMsg: Message[] = [
@@ -316,6 +367,9 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
           ];
           setMessages(fallbackMsg);
           saveMessagesToCache(newThreadId, fallbackMsg);
+          // Mark this thread as the active one in the session
+          updateSessionData(newThreadId);
+          sessionRestored.current = true;
         }
       } catch (err) {
         console.error("Failed to initialize chat:", err);
@@ -339,12 +393,23 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
     session?.user?.id,
     isInitialized,
     handleToolCalls,
+    preservingSession,
   ]);
 
   // Always scroll to bottom after new messages
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
+
+  // When component unmounts or threadId changes, save learning data
+  useEffect(() => {
+    // This ensures we save learning data when navigating away
+    return () => {
+      if (threadId && messages.length > 0) {
+        extractAndStoreAILearning(threadId, messages);
+      }
+    };
+  }, [threadId, messages]);
 
   // Sending text message
   const handleSendMessage = async () => {
@@ -363,12 +428,30 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
     const updatedMessages = [...messages, userMsg];
     setMessages(updatedMessages);
     saveMessagesToCache(threadId, updatedMessages);
+    updateSessionData(threadId);
     setInputValue("");
 
     try {
       setIsTyping(true);
 
-      // Send to server
+      // Check if there's an active run before sending
+      if (threadId && runStateManager.hasActiveRun(threadId)) {
+        console.log(
+          `Thread ${threadId} has an active run. Waiting for completion...`
+        );
+        const completed = await runStateManager.waitForRunCompletion(
+          threadId,
+          20000
+        );
+
+        if (!completed) {
+          // If wait timed out, force reset the run state
+          console.log("Run wait timed out, forcing reset");
+          runStateManager.setRunInactive(threadId);
+        }
+      }
+
+      // Now try to send the message
       let messageAdded = false;
       let retries = 0;
       while (!messageAdded && retries < 3) {
@@ -379,13 +462,28 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
             await new Promise((r) => setTimeout(r, 1000));
           }
         } catch (err) {
+          // Check if this is the specific "run is active" error
+          if (
+            err instanceof Error &&
+            err.message.includes("while a run") &&
+            err.message.includes("is active")
+          ) {
+            // Extract the run ID from the error message
+            const runIdMatch = err.message.match(/run\s+(\w+)\s+is active/);
+            if (runIdMatch && runIdMatch[1]) {
+              // Update the run state manager with the active run
+              runStateManager.setRunActive(threadId, runIdMatch[1]);
+              // Wait for the run to complete
+              await runStateManager.waitForRunCompletion(threadId, 5000);
+            }
+          }
           retries++;
-          console.error("Error sending message to thread:", err);
           await new Promise((r) => setTimeout(r, 1000));
         }
       }
+
       if (!messageAdded) {
-        throw new Error("Failed to send message after 3 tries");
+        throw new Error("Failed to send message after multiple attempts");
       }
 
       // Now get the assistant's response
@@ -406,6 +504,12 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
         const finalList = [...updatedMessages, finalMsg];
         setMessages(finalList);
         saveMessagesToCache(threadId, finalList);
+        updateSessionData(threadId);
+
+        // Periodically extract and store learning data
+        if (finalList.length % 5 === 0) {
+          extractAndStoreAILearning(threadId, finalList);
+        }
       }
     } catch (err) {
       console.error("Failed to process message:", err);
@@ -481,6 +585,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
       const updatedMessages = [...messages, userImgMsg];
       setMessages(updatedMessages);
       saveMessagesToCache(threadId || "", updatedMessages);
+      updateSessionData(threadId || "");
 
       // Send it to the assistant
       if (threadId && assistantId) {
@@ -508,6 +613,10 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
           const finalList = [...updatedMessages, assistantResponse];
           setMessages(finalList);
           saveMessagesToCache(threadId, finalList);
+          updateSessionData(threadId);
+
+          // Extract learning from messages with images
+          extractAndStoreAILearning(threadId, finalList);
         }
       }
     } catch (err) {
@@ -565,6 +674,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
           const updatedMessages = [...messages, userMessage];
           setMessages(updatedMessages);
           saveMessagesToCache(threadId || "", updatedMessages);
+          updateSessionData(threadId || "");
 
           // Process with assistant
           if (!threadId || !assistantId)
@@ -596,6 +706,10 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
             const finalList = [...updatedMessages, assistantResponse];
             setMessages(finalList);
             saveMessagesToCache(threadId, finalList);
+            updateSessionData(threadId);
+
+            // Voice messages should definitely extract learning data
+            extractAndStoreAILearning(threadId, finalList);
           }
         } catch (error) {
           console.error("Error processing voice recording:", error);
@@ -662,6 +776,13 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
         {uploadError && (
           <div className="mx-auto bg-red-100 dark:bg-red-900 p-3 rounded-lg text-center">
             {uploadError}
+          </div>
+        )}
+
+        {/* Indicator that shows this is a preserved session */}
+        {preservingSession && sessionRestored.current && (
+          <div className="mx-auto bg-blue-100 dark:bg-blue-900/30 p-2 rounded-lg text-center text-xs text-blue-800 dark:text-blue-200 animate-fade-in">
+            Continuing your previous conversation
           </div>
         )}
 
