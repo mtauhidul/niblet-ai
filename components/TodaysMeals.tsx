@@ -1,7 +1,7 @@
 "use client";
 
 import type { Meal as BaseMeal } from "@/lib/firebase/models/meal";
-import { ChevronDown, ChevronUp, Edit, Trash } from "lucide-react";
+import { ChevronDown, ChevronUp, Trash } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import EditMealModal from "./EditMealModal";
@@ -304,7 +304,7 @@ const TodaysMeals = ({
                           <div className="col-span-1 flex justify-end">
                             {item.id && (
                               <>
-                                <Button
+                                {/* <Button
                                   size="sm"
                                   variant="ghost"
                                   className="h-6 w-6 p-0"
@@ -314,7 +314,7 @@ const TodaysMeals = ({
                                   }}
                                 >
                                   <Edit className="h-3 w-3" />
-                                </Button>
+                                </Button> */}
                                 <Button
                                   size="sm"
                                   variant="ghost"
@@ -340,7 +340,7 @@ const TodaysMeals = ({
                             <div className="flex items-center">
                               {item.id && (
                                 <>
-                                  <Button
+                                  {/* <Button
                                     size="sm"
                                     variant="ghost"
                                     className="h-6 w-6 p-0"
@@ -350,7 +350,7 @@ const TodaysMeals = ({
                                     }}
                                   >
                                     <Edit className="h-3 w-3" />
-                                  </Button>
+                                  </Button> */}
                                   <Button
                                     size="sm"
                                     variant="ghost"
@@ -375,117 +375,21 @@ const TodaysMeals = ({
                         </div>
                       </div>
                     ))}
-
-                    {/* Total row (desktop) */}
-                    <div className="hidden sm:grid grid-cols-12 items-center text-sm font-medium border-t pt-1 mt-1">
-                      <div className="col-span-3 text-left">Total</div>
-                      <div className="col-span-2 text-right">
-                        {group.totalCalories}
-                      </div>
-                      <div className="col-span-2 text-right">
-                        {group.items.reduce(
-                          (sum, item) => sum + item.protein,
-                          0
-                        )}
-                      </div>
-                      <div className="col-span-2 text-right">
-                        {group.items.reduce((sum, item) => sum + item.carbs, 0)}
-                      </div>
-                      <div className="col-span-2 text-right">
-                        {group.items.reduce((sum, item) => sum + item.fat, 0)}
-                      </div>
-                      <div className="col-span-1"></div>
-                    </div>
-
-                    {/* Total row (mobile) */}
-                    <div className="block sm:hidden text-sm font-medium border-t pt-2 mt-2">
-                      <div className="flex justify-between">
-                        <span>Total</span>
-                        <span>{group.totalCalories} cal</span>
-                      </div>
-                      <div className="flex flex-wrap gap-2 mt-1 text-xs text-gray-600 dark:text-gray-400">
-                        <span>
-                          {group.items.reduce(
-                            (sum, item) => sum + item.protein,
-                            0
-                          )}
-                          g P
-                        </span>
-                        <span>
-                          {group.items.reduce(
-                            (sum, item) => sum + item.carbs,
-                            0
-                          )}
-                          g C
-                        </span>
-                        <span>
-                          {group.items.reduce((sum, item) => sum + item.fat, 0)}
-                          g F
-                        </span>
-                      </div>
-                    </div>
                   </div>
                 )}
               </div>
             );
           })}
-        </div>
-      </div>
-
-      {/* Daily Target Progress Chart */}
-      <div className="mb-4">
-        {/* Stacked Bar for Macronutrients */}
-        <div className="w-full h-6 bg-gray-200 dark:bg-gray-700 rounded-md overflow-hidden">
-          {(() => {
-            const totalTargetGrams = targetProtein + targetCarbs + targetFat;
-            const proteinWidth = (targetProtein / totalTargetGrams) * 100;
-            const carbsWidth = (targetCarbs / totalTargetGrams) * 100;
-            const fatWidth = (targetFat / totalTargetGrams) * 100;
-
-            const proteinConsumedPercent =
-              Math.min(totalProtein / targetProtein, 1) * 100;
-            const carbsConsumedPercent =
-              Math.min(totalCarbs / targetCarbs, 1) * 100;
-            const fatConsumedPercent = Math.min(totalFat / targetFat, 1) * 100;
-
-            return (
-              <div className="flex h-full w-full">
-                {/* Protein */}
-                <div
-                  className="h-full relative"
-                  style={{ width: `${proteinWidth}%` }}
-                >
-                  <div className="absolute inset-0 bg-gray-100 dark:bg-gray-600"></div>
-                  <div
-                    className="absolute inset-0 bg-blue-500"
-                    style={{ width: `${proteinConsumedPercent}%` }}
-                  ></div>
-                </div>
-                {/* Carbs */}
-                <div
-                  className="h-full relative"
-                  style={{ width: `${carbsWidth}%` }}
-                >
-                  <div className="absolute inset-0 bg-gray-100 dark:bg-gray-600"></div>
-                  <div
-                    className="absolute inset-0 bg-green-500"
-                    style={{ width: `${carbsConsumedPercent}%` }}
-                  ></div>
-                </div>
-                {/* Fat */}
-                <div
-                  className="h-full relative"
-                  style={{ width: `${fatWidth}%` }}
-                >
-                  <div className="absolute inset-0 bg-gray-100 dark:bg-gray-600"></div>
-                  <div
-                    className="absolute inset-0 bg-red-500"
-                    style={{ width: `${fatConsumedPercent}%` }}
-                  ></div>
-                </div>
+          <div>
+            <div className="p-4 flex justify-between items-center">
+              <div>
+                <span className="font-medium">Totals</span>
               </div>
-            );
-          })()}
+              <div className="text-sm text-gray-500 dark:text-gray-400">
+                {totalCalories} calories
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 

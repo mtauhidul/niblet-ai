@@ -101,29 +101,69 @@ export const getOrCreateAssistant = async (
   };
 
   try {
-    // Check if there's an existing assistant ID in localStorage to avoid recreation
-    const storedAssistantId =
-      typeof window !== "undefined"
-        ? localStorage.getItem(`assistant_${personality}`)
-        : null;
+    // IMPORTANT: Force creation of a new assistant every time to ensure new instructions are used
+    // Remove the localStorage check to always create a new assistant
 
-    if (storedAssistantId) {
-      try {
-        // Verify the assistant still exists
-        await retry(() => openai.beta.assistants.retrieve(storedAssistantId));
-        console.log(`Retrieved existing assistant: ${storedAssistantId}`);
-        return storedAssistantId;
-      } catch (error) {
-        console.log("Stored assistant not found, creating new one");
-        // Continue to create a new assistant
-      }
-    }
+    // Ultra-strict formatting instructions with minimal room for interpretation
+    const formattingInstructions = `
+ULTRA-STRICT MEAL RESPONSE FORMAT - FOLLOW EXACTLY WITH NO DEVIATIONS:
+
+Your ENTIRE response for any meal or food mention MUST follow this EXACT template:
+
+[One short greeting sentence with emoji] Let's break it down:
+[Food item 1]: ~[X] calories, [X]g protein, [X]g carbs, [X]g fat = [X] calories
+[Food item 2]: ~[X] calories, [X]g protein, [X]g carbs, [X]g fat = [X] calories
+[Food item 3]: ~[X] calories, [X]g protein, [X]g carbs, [X]g fat = [X] calories
+
+Total [meal type] = [X] calories. [One brief nutritional comment]
+
+CRITICAL RULES:
+1. NEVER use bullet points, numbered lists, or paragraph breaks
+2. NEVER write "here's the breakdown" or any other transition phrases
+3. NEVER ask if they want to log the meal - automatically log it
+4. NEVER mention logging the meal in your response
+5. NEVER say things like "I'll go ahead and log this" or "let me know if you need anything adjusted"
+6. ALWAYS include specific numbers for protein, carbs, and fat for EACH food item
+7. KEEP RESPONSE UNDER 8 LINES TOTAL including blank line
+
+EXAMPLE OF REQUIRED FORMAT:
+That looks delicious! 🍗 Let's break it down:
+Breaded chicken cutlet: ~400 calories, 30g protein, 15g carbs, 22g fat = 400 calories
+Coleslaw side: ~150 calories, 2g protein, 8g carbs, 12g fat = 150 calories
+Green salad: ~50 calories, 1g protein, 3g carbs, 2g fat = 50 calories
+
+Total lunch = 600 calories. Good protein with balanced veggies!
+
+INCORRECT FORMATS TO AVOID:
+
+DON'T USE NUMBERED LISTS:
+❌ That looks like a delicious plate of breaded chicken schnitzel with a side of coleslaw and a dollop of herb butter! Let's break down the meal:
+1. **Chicken Schnitzel** - Typically, a serving of breaded chicken schnitzel can have about 300-350 calories, depending on the size and thickness.
+2. **Coleslaw** - A small serving of coleslaw is usually around 150 calories, primarily from the creamy dressing.
+3. **Herb Butter** - A tablespoon of herb butter might be around 100 calories.
+Based on these estimates, this meal could have around 550-600 calories in total. It's also a good mix of protein from the chicken, fats from the butter and dressing, and some carbs from the breading on the chicken and the veggies in the coleslaw.
+I'll go ahead and log this meal as 'Lunch' with an estimate of 600 calories. 📝 Let me know if you need anything adjusted or have another meal to share!
+
+DON'T USE VERBOSE DESCRIPTIONS:
+❌ That looks delicious! From the image, it seems you've got a breaded chicken cutlet with a side of coleslaw and some greens. Yum! 🍋
+
+Here's a quick nutritional breakdown:
+The chicken cutlet is likely around 400 calories, with a good amount of protein and some fat from the breading.
+The coleslaw, depending on the dressing used, can be about 150 calories, mainly from the mayo or other creamy dressing.
+The greens are pretty light, likely under 50 calories, mainly providing fiber and vitamins.
+
+In total, this meal could be approximately 600 calories. It's a balanced choice with protein, veggies, and a bit of indulgent breading.
+I'll go ahead and log this meal as your lunch. Let me know if you need anything adjusted or have more to add! 😊
+
+FOR ALL OTHER TOPICS BESIDES FOOD/MEALS, you can respond normally.
+`;
 
     // Create a new assistant with retry
     const assistant = await retry(() =>
       openai.beta.assistants.create({
         name: personalities[personality].name,
-        instructions: personalities[personality].instructions,
+        // Override normal personality instructions completely
+        instructions: formattingInstructions,
         model: "gpt-4-turbo",
         tools: [
           {
@@ -131,7 +171,7 @@ export const getOrCreateAssistant = async (
             function: {
               name: "log_meal",
               description:
-                "Log a meal with estimated calories and nutrition information",
+                "Log a meal with estimated calories and nutrition information. ALWAYS call this function immediately without asking the user.",
               parameters: {
                 type: "object",
                 properties: {
@@ -292,7 +332,8 @@ export const getOrCreateAssistant = async (
       })
     );
 
-    // Store the assistant ID in localStorage to avoid recreation
+    // Store the assistant ID in localStorage (we'll use this but still force creation)
+    // This is needed because other parts of the app expect this functionality
     if (typeof window !== "undefined") {
       localStorage.setItem(`assistant_${personality}`, assistant.id);
     }
@@ -304,7 +345,6 @@ export const getOrCreateAssistant = async (
     return null;
   }
 };
-
 // Create a thread for the user with retry
 export const createThread = async (): Promise<string | null> => {
   const openai = getOpenAIClient();
