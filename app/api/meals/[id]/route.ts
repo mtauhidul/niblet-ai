@@ -90,10 +90,7 @@ export async function PATCH(
 }
 
 // DELETE endpoint to delete a meal
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function DELETE(request: NextRequest, context: any) {
   try {
     // Get session token for authentication
     const token = await getToken({ req: request });
@@ -102,7 +99,7 @@ export async function DELETE(
       return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     }
 
-    const mealId = params.id;
+    const mealId = context.params.id;
     if (!mealId) {
       return NextResponse.json(
         { message: "Meal ID is required" },
