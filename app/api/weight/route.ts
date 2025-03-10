@@ -199,19 +199,16 @@ export async function PATCH(
 }
 
 // DELETE endpoint to delete a weight log
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function DELETE(request: NextRequest, context: any) {
   try {
-    // Get token and validate user
+    // Get session token for authentication
     const token = await getToken({ req: request });
 
     if (!token?.sub) {
       return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     }
 
-    const logId = params.id;
+    const logId = context.params.id;
     if (!logId) {
       return NextResponse.json(
         { message: "Weight log ID is required" },
