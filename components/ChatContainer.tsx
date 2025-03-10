@@ -13,7 +13,6 @@ import {
 } from "@/lib/assistantService";
 import {
   extractAndStoreAILearning,
-  getAILearningData,
   getMessagesFromCache,
   saveMessagesToCache,
   updateSessionData,
@@ -174,7 +173,6 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
     if (isInitialized || initializationAttempted.current || !session?.user?.id)
       return;
 
-    // Mark that we've attempted initialization to prevent double initialization
     initializationAttempted.current = true;
 
     const initializeChat = async () => {
@@ -183,7 +181,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
         let currentThreadId = threadId;
         let currentAssistantId = assistantId;
 
-        // If we got IDs from props, ensure we store them in local state
+        // Use threadId and assistantId from props if provided
         if (propThreadId && propAssistantId) {
           setThreadId(propThreadId);
           setAssistantId(propAssistantId);
@@ -191,187 +189,82 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
           currentAssistantId = propAssistantId;
         }
 
-        // If this is a preserved session, we skip most of the initialization
-        if (preservingSession && sessionRestored.current) {
-          console.log("Using preserved session, skipping full initialization");
-
-          // We still need to load messages from cache
-          if (currentThreadId) {
-            const cachedMessages = getMessagesFromCache(currentThreadId);
-            if (cachedMessages && cachedMessages.length > 0) {
-              setMessages(cachedMessages);
-              updateSessionData(currentThreadId);
-              setIsInitialized(true);
-              setIsTyping(false);
-              return;
-            }
-          }
-        }
-
-        // If we already have a thread, try to load from localStorage
-        if (currentThreadId && currentAssistantId) {
-          console.log("Using existing thread + assistant IDs:", {
-            threadId: currentThreadId,
-            assistantId: currentAssistantId,
-          });
-
-          // See if localStorage has messages
+        // If session should be preserved, attempt to load cached messages
+        if (preservingSession && currentThreadId) {
           const cachedMessages = getMessagesFromCache(currentThreadId);
-          console.log("Cached messages:", cachedMessages);
-
           if (cachedMessages && cachedMessages.length > 0) {
-            console.log(
-              "Loaded messages from localStorage:",
-              cachedMessages.length
-            );
             setMessages(cachedMessages);
+            updateSessionData(currentThreadId);
             setIsInitialized(true);
             setIsTyping(false);
-
-            // Mark this thread as the active one in the session
-            updateSessionData(currentThreadId);
             sessionRestored.current = true;
             return;
           }
+        }
 
-          // If localStorage is empty, fetch from the server
-          try {
-            const resp = await fetch(
-              `/api/assistant/messages?threadId=${currentThreadId}`
-            );
-            if (resp.ok) {
-              const data = await resp.json();
-              if (Array.isArray(data) && data.length > 0) {
-                const fetchedMessages = data.map((msg: any) => ({
-                  ...msg,
-                  timestamp: new Date(msg.timestamp),
-                })) as Message[];
-                setMessages(fetchedMessages);
-                saveMessagesToCache(currentThreadId, fetchedMessages);
-                setIsInitialized(true);
-                setIsTyping(false);
+        // If a thread exists and we're not preserving the session,
+        // skip cached messages and create a new thread.
+        if (!preservingSession && currentThreadId) {
+          console.log("Starting new session; ignoring cached messages");
+          // Optionally, you can clear the cache for the old thread here:
+          // clearMessagesCache(currentThreadId);
+          currentThreadId = null;
+          currentAssistantId = null;
+        }
 
-                // Mark this thread as the active one in the session
-                updateSessionData(currentThreadId);
-                sessionRestored.current = true;
-                return;
-              } else {
-                // If no messages exist on the server, we need to run the assistant for a greeting
-                console.log(
-                  "No messages found for existing thread, generating new welcome message"
-                );
+        // If no valid thread exists, create a new thread and assistant
+        if (!currentThreadId || !currentAssistantId) {
+          console.log("Creating new thread and assistant...");
+          const newThreadId = await createThread();
+          if (!newThreadId) throw new Error("Failed to create new thread");
+          const newAssistantId = await getOrCreateAssistant(aiPersonality);
+          if (!newAssistantId) throw new Error("Failed to create assistant");
 
-                // Run the assistant to get a welcome message
-                const assistantMessages = await runAssistant(
-                  currentThreadId,
-                  currentAssistantId,
-                  aiPersonality,
-                  handleToolCalls
-                );
+          setThreadId(newThreadId);
+          setAssistantId(newAssistantId);
+          onThreadInitialized?.(newThreadId, newAssistantId);
 
-                if (assistantMessages && assistantMessages.length > 0) {
-                  const welcomeMessage =
-                    assistantMessages[assistantMessages.length - 1];
-                  const initialMsgs: Message[] = [
-                    {
-                      id: welcomeMessage.id,
-                      role: "assistant",
-                      content: welcomeMessage.content,
-                      timestamp: welcomeMessage.createdAt,
-                    },
-                  ];
-                  setMessages(initialMsgs);
-                  saveMessagesToCache(currentThreadId, initialMsgs);
-                  setIsInitialized(true);
-                  setIsTyping(false);
+          await createOrUpdateUserProfile(session.user.id, {
+            threadId: newThreadId,
+            assistantId: newAssistantId,
+            aiPersonality: aiPersonality,
+          });
 
-                  // Mark this thread as the active one in the session
-                  updateSessionData(currentThreadId);
-                  sessionRestored.current = true;
-                  return;
-                }
-              }
-            }
-          } catch (err) {
-            console.error("Error fetching messages from server:", err);
-            // Continue to create a welcome message if fetch fails
+          // Continue with generating the welcome message...
+          const assistantMessages = await runAssistant(
+            newThreadId,
+            newAssistantId,
+            aiPersonality,
+            handleToolCalls
+          );
+          if (assistantMessages && assistantMessages.length > 0) {
+            const latestMsg = assistantMessages[assistantMessages.length - 1];
+            const initialMsgs: Message[] = [
+              {
+                id: latestMsg.id,
+                role: "assistant",
+                content: latestMsg.content,
+                timestamp: latestMsg.createdAt,
+              },
+            ];
+            setMessages(initialMsgs);
+            saveMessagesToCache(newThreadId, initialMsgs);
+            updateSessionData(newThreadId);
+            sessionRestored.current = true;
+          } else {
+            const fallbackMsg: Message[] = [
+              {
+                id: "welcome",
+                role: "assistant",
+                content: "Hi, I'm Niblet! How can I help you today?",
+                timestamp: new Date(),
+              },
+            ];
+            setMessages(fallbackMsg);
+            saveMessagesToCache(newThreadId, fallbackMsg);
+            updateSessionData(newThreadId);
+            sessionRestored.current = true;
           }
-        }
-
-        // If we got here, we didn't have a valid session or couldn't restore
-        // If preservingSession was true, show a message to the user
-        if (preservingSession && !sessionRestored.current) {
-          console.log("Failed to restore preserved session, creating new one");
-          // Maybe show a toast or message to the user
-          toast.info("Creating a new conversation session");
-        }
-
-        // If we do not have a thread yet, create one
-        console.log(
-          "No existing thread or assistant found. Creating new thread..."
-        );
-
-        const newThreadId = await createThread();
-        if (!newThreadId) throw new Error("Failed to create new thread");
-        const newAssistantId = await getOrCreateAssistant(aiPersonality);
-        if (!newAssistantId) throw new Error("Failed to create assistant");
-
-        setThreadId(newThreadId);
-        setAssistantId(newAssistantId);
-
-        // Notify the parent so it can store these in the user profile if needed
-        onThreadInitialized?.(newThreadId, newAssistantId);
-
-        // Store these in Firestore user profile
-        await createOrUpdateUserProfile(session.user.id, {
-          threadId: newThreadId,
-          assistantId: newAssistantId,
-          aiPersonality: aiPersonality,
-        });
-
-        // Include any previous learning data for this user for continuity
-        const previousLearningData = getAILearningData(newThreadId);
-        console.log("Previous learning data:", previousLearningData);
-
-        // Start chat with system-initiated welcome, not waiting for user to say "hello"
-        // Run the assistant directly without sending a user message first
-        const assistantMessages = await runAssistant(
-          newThreadId,
-          newAssistantId,
-          aiPersonality,
-          handleToolCalls
-        );
-
-        if (assistantMessages && assistantMessages.length > 0) {
-          const latestMsg = assistantMessages[assistantMessages.length - 1];
-          const initialMsgs: Message[] = [
-            {
-              id: latestMsg.id,
-              role: "assistant",
-              content: latestMsg.content,
-              timestamp: latestMsg.createdAt,
-            },
-          ];
-          setMessages(initialMsgs);
-          saveMessagesToCache(newThreadId, initialMsgs);
-          // Mark this thread as the active one in the session
-          updateSessionData(newThreadId);
-          sessionRestored.current = true;
-        } else {
-          // Fallback greeting if the assistant doesn't respond
-          const fallbackMsg: Message[] = [
-            {
-              id: "welcome",
-              role: "assistant",
-              content: "Hi, I'm Niblet! How can I help you today?",
-              timestamp: new Date(),
-            },
-          ];
-          setMessages(fallbackMsg);
-          saveMessagesToCache(newThreadId, fallbackMsg);
-          // Mark this thread as the active one in the session
-          updateSessionData(newThreadId);
-          sessionRestored.current = true;
         }
       } catch (err) {
         console.error("Failed to initialize chat:", err);
