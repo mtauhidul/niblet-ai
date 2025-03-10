@@ -7,6 +7,7 @@ import { getUserProfileById } from "@/lib/auth/authService";
 import { db } from "@/lib/firebase/clientApp";
 import type { Meal } from "@/lib/firebase/models/meal";
 import type { UserProfile } from "@/lib/firebase/models/user";
+import { Message } from "@/types/chat";
 import {
   collection,
   getDocs,
@@ -29,6 +30,7 @@ import TodaysMeals from "./TodaysMeals";
 import { Button } from "./ui/button";
 import { Skeleton } from "./ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
+import VoiceChat from "./VoiceChat";
 
 interface CollapsibleSectionProps {
   title: string;
@@ -80,6 +82,7 @@ const Dashboard = ({
   const [mounted, setMounted] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [loadingError, setLoadingError] = useState<string | null>(null);
+  const [isVoiceCallModalOpen, setIsVoiceCallModalOpen] = useState(false);
 
   // Use the chat manager hook for chat state management
   const {
@@ -287,17 +290,18 @@ const Dashboard = ({
       loadUserProfile();
     }
   }, [loadUserProfile, session?.user?.id]);
+  const [isVoiceChatOpen, setIsVoiceChatOpen] = useState(false);
 
+  // Replace the existing handlePhoneCall function with this:
   const handlePhoneCall = () => {
+    setIsVoiceChatOpen(true);
     setIsCalling(true);
-    toast.info("Connecting to assistant...");
-    setTimeout(() => {
-      toast.success("Connected to Niblet voice assistant");
-      setTimeout(() => {
-        setIsCalling(false);
-        toast.info("Call ended");
-      }, 10000);
-    }, 2000);
+  };
+
+  // Add this function to handle adding voice call messages to the chat UI
+  const handleVoiceCallMessage = (message: Message) => {
+    // You can add the voice call messages to the main chat history here if desired
+    // This is optional - if you don't want voice call messages in the main chat, you can omit this
   };
 
   // Use the chat manager's personality change
@@ -388,7 +392,7 @@ const Dashboard = ({
               onWeightLogged={handleWeightLogged}
               isCalling={isCalling}
               onCall={handlePhoneCall}
-              preservingSession={preservingSession} // New prop from useChatManager
+              preservingSession={preservingSession}
             />
           )}
         </div>
@@ -422,6 +426,27 @@ const Dashboard = ({
           </div>
         </CollapsibleSection>
       </div>
+      {/* Voice Chat Modal */}
+      {isVoiceChatOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg w-full max-w-lg p-4 m-4">
+            <VoiceChat
+              threadId={chatThreadId}
+              assistantId={assistantId}
+              aiPersonality={aiPersonality}
+              onMessageReceived={(message) => {
+                // Handle new messages from voice chat
+              }}
+              onMealLogged={combinedHandleMealLogged}
+              onWeightLogged={handleWeightLogged}
+              onEndCall={() => {
+                setIsVoiceChatOpen(false);
+                setIsCalling(false);
+              }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

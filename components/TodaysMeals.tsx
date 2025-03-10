@@ -1,4 +1,3 @@
-// components/TodaysMeals.tsx
 "use client";
 
 import type { Meal as BaseMeal } from "@/lib/firebase/models/meal";
@@ -233,14 +232,6 @@ const TodaysMeals = ({
     return (indexA === -1 ? 999 : indexA) - (indexB === -1 ? 999 : indexB);
   });
 
-  // Function to determine progress bar color based on percentage
-  const getProgressColor = (percentage: number) => {
-    if (percentage < 50) return "bg-red-500";
-    if (percentage < 80) return "bg-yellow-500";
-    if (percentage <= 100) return "bg-green-500";
-    return "bg-red-500"; // Over 100%
-  };
-
   return (
     <div className="space-y-4">
       {/* Main container for all meal sections */}
@@ -282,33 +273,35 @@ const TodaysMeals = ({
                 {/* Expanded content - visible when expanded */}
                 {group.expanded && (
                   <div className="animate-in slide-in-from-top-4 duration-300 px-4 pb-4">
-                    {/* Nutrition table */}
-                    <div className="w-full">
-                      <div className="flex items-center text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">
-                        <div className="w-1/3 text-left">Food Item</div>
-                        <div className="w-1/6 text-right">Calories</div>
-                        <div className="w-1/6 text-right">Protein (g)</div>
-                        <div className="w-1/6 text-right">Carbs (g)</div>
-                        <div className="w-1/6 text-right">Fat (g)</div>
-                        <div className="w-1/12"></div>
-                      </div>
+                    {/* Nutrition table-like header (for larger screens) */}
+                    <div className="hidden sm:grid grid-cols-12 text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">
+                      <div className="col-span-3 text-left">Food Item</div>
+                      <div className="col-span-2 text-right">Calories</div>
+                      <div className="col-span-2 text-right">Protein (g)</div>
+                      <div className="col-span-2 text-right">Carbs (g)</div>
+                      <div className="col-span-2 text-right">Fat (g)</div>
+                      <div className="col-span-1"></div>
+                    </div>
 
-                      {/* Food items */}
-                      {group.items.map((item, idx) => (
-                        <div
-                          key={idx}
-                          className="flex items-center text-sm py-1 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md"
-                        >
-                          <div className="w-1/3 text-left truncate">
-                            {item.name}
-                          </div>
-                          <div className="w-1/6 text-right">
+                    {/* Food items */}
+                    {group.items.map((item, idx) => (
+                      <div key={idx}>
+                        {/* Desktop / larger screens */}
+                        <div className="hidden sm:grid grid-cols-12 items-center text-sm py-1 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md">
+                          <div className="col-span-3 truncate">{item.name}</div>
+                          <div className="col-span-2 text-right">
                             {item.calories}
                           </div>
-                          <div className="w-1/6 text-right">{item.protein}</div>
-                          <div className="w-1/6 text-right">{item.carbs}</div>
-                          <div className="w-1/6 text-right">{item.fat}</div>
-                          <div className="w-1/12 flex justify-end">
+                          <div className="col-span-2 text-right">
+                            {item.protein}
+                          </div>
+                          <div className="col-span-2 text-right">
+                            {item.carbs}
+                          </div>
+                          <div className="col-span-2 text-right">
+                            {item.fat}
+                          </div>
+                          <div className="col-span-1 flex justify-end">
                             {item.id && (
                               <>
                                 <Button
@@ -337,30 +330,98 @@ const TodaysMeals = ({
                             )}
                           </div>
                         </div>
-                      ))}
 
-                      {/* Total row */}
-                      <div className="flex items-center text-sm font-medium border-t pt-1 mt-1">
-                        <div className="w-1/3 text-left">Total</div>
-                        <div className="w-1/6 text-right">
-                          {group.totalCalories}
+                        {/* Mobile / smaller screens */}
+                        <div className="block sm:hidden text-sm py-2 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md">
+                          <div className="flex justify-between">
+                            <div className="font-medium truncate">
+                              {item.name}
+                            </div>
+                            <div className="flex items-center">
+                              {item.id && (
+                                <>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-6 w-6 p-0"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleEditMeal(item.id);
+                                    }}
+                                  >
+                                    <Edit className="h-3 w-3" />
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-6 w-6 p-0"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setDeletingMealId(item.id ?? null);
+                                    }}
+                                  >
+                                    <Trash className="h-3 w-3" />
+                                  </Button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap gap-2 mt-1 text-xs text-gray-600 dark:text-gray-400">
+                            <span>{item.calories} cal</span>
+                            <span>{item.protein}g P</span>
+                            <span>{item.carbs}g C</span>
+                            <span>{item.fat}g F</span>
+                          </div>
                         </div>
-                        <div className="w-1/6 text-right">
+                      </div>
+                    ))}
+
+                    {/* Total row (desktop) */}
+                    <div className="hidden sm:grid grid-cols-12 items-center text-sm font-medium border-t pt-1 mt-1">
+                      <div className="col-span-3 text-left">Total</div>
+                      <div className="col-span-2 text-right">
+                        {group.totalCalories}
+                      </div>
+                      <div className="col-span-2 text-right">
+                        {group.items.reduce(
+                          (sum, item) => sum + item.protein,
+                          0
+                        )}
+                      </div>
+                      <div className="col-span-2 text-right">
+                        {group.items.reduce((sum, item) => sum + item.carbs, 0)}
+                      </div>
+                      <div className="col-span-2 text-right">
+                        {group.items.reduce((sum, item) => sum + item.fat, 0)}
+                      </div>
+                      <div className="col-span-1"></div>
+                    </div>
+
+                    {/* Total row (mobile) */}
+                    <div className="block sm:hidden text-sm font-medium border-t pt-2 mt-2">
+                      <div className="flex justify-between">
+                        <span>Total</span>
+                        <span>{group.totalCalories} cal</span>
+                      </div>
+                      <div className="flex flex-wrap gap-2 mt-1 text-xs text-gray-600 dark:text-gray-400">
+                        <span>
                           {group.items.reduce(
                             (sum, item) => sum + item.protein,
                             0
                           )}
-                        </div>
-                        <div className="w-1/6 text-right">
+                          g P
+                        </span>
+                        <span>
                           {group.items.reduce(
                             (sum, item) => sum + item.carbs,
                             0
                           )}
-                        </div>
-                        <div className="w-1/6 text-right">
+                          g C
+                        </span>
+                        <span>
                           {group.items.reduce((sum, item) => sum + item.fat, 0)}
-                        </div>
-                        <div className="w-1/12"></div>
+                          g F
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -369,165 +430,62 @@ const TodaysMeals = ({
             );
           })}
         </div>
-
-        {/* Daily total row */}
-        <div className="p-3 border-t bg-gray-50 dark:bg-gray-700 flex justify-between">
-          <div className="font-medium">{totalCalories} cal</div>
-          <div className="text-sm text-gray-500 dark:text-gray-400">
-            {caloriesPercentage}% of {targetCalories} cal
-          </div>
-        </div>
       </div>
 
-      {/* Daily Target Progress Chart - Now visible by default */}
-      <div className="border rounded-lg bg-white dark:bg-gray-800 p-4">
-        {/* Combined Macronutrients Progress */}
-        <div className="mb-4">
-          <div className="flex justify-between mb-1">
-            <div className="text-sm text-gray-500 dark:text-gray-400 flex gap-3">
-              <span>P: {totalProtein}g</span>
-              <span>C: {totalCarbs}g</span>
-              <span>F: {totalFat}g</span>
-            </div>
-          </div>
+      {/* Daily Target Progress Chart */}
+      <div className="mb-4">
+        {/* Stacked Bar for Macronutrients */}
+        <div className="w-full h-6 bg-gray-200 dark:bg-gray-700 rounded-md overflow-hidden">
+          {(() => {
+            const totalTargetGrams = targetProtein + targetCarbs + targetFat;
+            const proteinWidth = (targetProtein / totalTargetGrams) * 100;
+            const carbsWidth = (targetCarbs / totalTargetGrams) * 100;
+            const fatWidth = (targetFat / totalTargetGrams) * 100;
 
-          {/* Stacked Bar for Macronutrients */}
-          <div className="w-full h-6 bg-gray-200 dark:bg-gray-700 rounded-md overflow-hidden">
-            {/* Calculate each macro's proportion of the total target macros for display width */}
-            {(() => {
-              const totalTargetGrams = targetProtein + targetCarbs + targetFat;
-              const proteinWidth = (targetProtein / totalTargetGrams) * 100;
-              const carbsWidth = (targetCarbs / totalTargetGrams) * 100;
-              const fatWidth = (targetFat / totalTargetGrams) * 100;
+            const proteinConsumedPercent =
+              Math.min(totalProtein / targetProtein, 1) * 100;
+            const carbsConsumedPercent =
+              Math.min(totalCarbs / targetCarbs, 1) * 100;
+            const fatConsumedPercent = Math.min(totalFat / targetFat, 1) * 100;
 
-              // Calculate consumed percentage for each macro
-              const proteinConsumedPercent =
-                Math.min(totalProtein / targetProtein, 1) * 100;
-              const carbsConsumedPercent =
-                Math.min(totalCarbs / targetCarbs, 1) * 100;
-              const fatConsumedPercent =
-                Math.min(totalFat / targetFat, 1) * 100;
-
-              return (
-                <div className="flex h-full w-full">
-                  {/* Protein Bar */}
+            return (
+              <div className="flex h-full w-full">
+                {/* Protein */}
+                <div
+                  className="h-full relative"
+                  style={{ width: `${proteinWidth}%` }}
+                >
+                  <div className="absolute inset-0 bg-gray-100 dark:bg-gray-600"></div>
                   <div
-                    className="h-full relative"
-                    style={{ width: `${proteinWidth}%` }}
-                  >
-                    <div className="absolute inset-0 bg-gray-100 dark:bg-gray-600"></div>
-                    <div
-                      className="absolute inset-0 bg-blue-500"
-                      style={{ width: `${proteinConsumedPercent}%` }}
-                    ></div>
-                  </div>
-
-                  {/* Carbs Bar */}
-                  <div
-                    className="h-full relative"
-                    style={{ width: `${carbsWidth}%` }}
-                  >
-                    <div className="absolute inset-0 bg-gray-100 dark:bg-gray-600"></div>
-                    <div
-                      className="absolute inset-0 bg-green-500"
-                      style={{ width: `${carbsConsumedPercent}%` }}
-                    ></div>
-                  </div>
-
-                  {/* Fat Bar */}
-                  <div
-                    className="h-full relative"
-                    style={{ width: `${fatWidth}%` }}
-                  >
-                    <div className="absolute inset-0 bg-gray-100 dark:bg-gray-600"></div>
-                    <div
-                      className="absolute inset-0 bg-red-500"
-                      style={{ width: `${fatConsumedPercent}%` }}
-                    ></div>
-                  </div>
+                    className="absolute inset-0 bg-blue-500"
+                    style={{ width: `${proteinConsumedPercent}%` }}
+                  ></div>
                 </div>
-              );
-            })()}
-          </div>
-
-          {/* Macro Labels */}
-          <div className="flex w-full text-xs mt-1">
-            {(() => {
-              const totalTargetGrams = targetProtein + targetCarbs + targetFat;
-              const proteinWidth = (targetProtein / totalTargetGrams) * 100;
-              const carbsWidth = (targetCarbs / totalTargetGrams) * 100;
-              const fatWidth = (targetFat / totalTargetGrams) * 100;
-
-              return (
-                <>
+                {/* Carbs */}
+                <div
+                  className="h-full relative"
+                  style={{ width: `${carbsWidth}%` }}
+                >
+                  <div className="absolute inset-0 bg-gray-100 dark:bg-gray-600"></div>
                   <div
-                    className="text-center"
-                    style={{ width: `${proteinWidth}%` }}
-                  >
-                    <div className="flex items-center justify-center">
-                      <div className="w-2 h-2 bg-blue-500 rounded-full mr-1"></div>
-                      Protein
-                    </div>
-                    <div className="text-gray-500 dark:text-gray-400">
-                      {Math.round((totalProtein / targetProtein) * 100)}%
-                    </div>
-                  </div>
-
+                    className="absolute inset-0 bg-green-500"
+                    style={{ width: `${carbsConsumedPercent}%` }}
+                  ></div>
+                </div>
+                {/* Fat */}
+                <div
+                  className="h-full relative"
+                  style={{ width: `${fatWidth}%` }}
+                >
+                  <div className="absolute inset-0 bg-gray-100 dark:bg-gray-600"></div>
                   <div
-                    className="text-center"
-                    style={{ width: `${carbsWidth}%` }}
-                  >
-                    <div className="flex items-center justify-center">
-                      <div className="w-2 h-2 bg-green-500 rounded-full mr-1"></div>
-                      Carbs
-                    </div>
-                    <div className="text-gray-500 dark:text-gray-400">
-                      {Math.round((totalCarbs / targetCarbs) * 100)}%
-                    </div>
-                  </div>
-
-                  <div
-                    className="text-center"
-                    style={{ width: `${fatWidth}%` }}
-                  >
-                    <div className="flex items-center justify-center">
-                      <div className="w-2 h-2 bg-red-500 rounded-full mr-1"></div>
-                      Fat
-                    </div>
-                    <div className="text-gray-500 dark:text-gray-400">
-                      {Math.round((totalFat / targetFat) * 100)}%
-                    </div>
-                  </div>
-                </>
-              );
-            })()}
-          </div>
-        </div>
-
-        {/* Macronutrient breakdown as percentage of calories */}
-        <div className="flex justify-between pt-2 mt-2 border-t text-xs text-gray-500 dark:text-gray-400">
-          <div className="flex items-center">
-            <div className="w-3 h-3 bg-blue-500 rounded-full mr-1"></div>
-            <span>
-              Protein:{" "}
-              {Math.round(((totalProtein * 4) / totalCalories) * 100 || 0)}% of
-              calories
-            </span>
-          </div>
-          <div className="flex items-center">
-            <div className="w-3 h-3 bg-green-500 rounded-full mr-1"></div>
-            <span>
-              Carbs: {Math.round(((totalCarbs * 4) / totalCalories) * 100 || 0)}
-              % of calories
-            </span>
-          </div>
-          <div className="flex items-center">
-            <div className="w-3 h-3 bg-red-500 rounded-full mr-1"></div>
-            <span>
-              Fat: {Math.round(((totalFat * 9) / totalCalories) * 100 || 0)}% of
-              calories
-            </span>
-          </div>
+                    className="absolute inset-0 bg-red-500"
+                    style={{ width: `${fatConsumedPercent}%` }}
+                  ></div>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       </div>
 

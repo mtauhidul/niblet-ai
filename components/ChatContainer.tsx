@@ -217,6 +217,8 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
 
           // See if localStorage has messages
           const cachedMessages = getMessagesFromCache(currentThreadId);
+          console.log("Cached messages:", cachedMessages);
+
           if (cachedMessages && cachedMessages.length > 0) {
             console.log(
               "Loaded messages from localStorage:",
@@ -898,10 +900,13 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
             size="icon"
             variant="outline"
             onClick={handlePhoneCall}
-            disabled={isCalling || isTyping || processInProgress.current}
-            className={isCalling ? "text-green-500 animate-pulse" : ""}
+            disabled={isTyping || processInProgress.current}
+            className="relative"
           >
             <Phone className="h-5 w-5" />
+            {isCalling && (
+              <span className="absolute top-0 right-0 w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+            )}
           </Button>
 
           <Button
