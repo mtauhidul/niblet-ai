@@ -2,11 +2,25 @@
 
 import { createOrUpdateUserProfile } from "@/lib/firebase/models/user";
 import {
+  deleteWeightLog,
+  getWeightLogById,
   getWeightLogsByUser,
   logWeight,
+  updateWeightLog,
 } from "@/lib/firebase/models/weightLog";
 import { getToken } from "next-auth/jwt";
 import { NextRequest, NextResponse } from "next/server";
+
+// Add these headers to prevent caching
+const addCacheControlHeaders = (response: NextResponse) => {
+  response.headers.set(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate"
+  );
+  response.headers.set("Pragma", "no-cache");
+  response.headers.set("Expires", "0");
+  return response;
+};
 
 // GET weight logs
 export async function GET(request: NextRequest) {
@@ -25,22 +39,11 @@ export async function GET(request: NextRequest) {
       : undefined;
 
     // Get weight logs
-    const weightLogs = await getWeightLogsByUser(token.sub);
-
-    // Apply limit if specified
-    const limitedLogs =
-      limit && limit > 0 ? weightLogs.slice(0, limit) : weightLogs;
+    const weightLogs = await getWeightLogsByUser(token.sub, limit);
 
     // Set cache control headers to prevent caching
-    const response = NextResponse.json(limitedLogs);
-    response.headers.set(
-      "Cache-Control",
-      "no-store, no-cache, must-revalidate, proxy-revalidate"
-    );
-    response.headers.set("Pragma", "no-cache");
-    response.headers.set("Expires", "0");
-
-    return response;
+    const response = NextResponse.json(weightLogs);
+    return addCacheControlHeaders(response);
   } catch (error) {
     console.error("Error fetching weight logs:", error);
     return NextResponse.json(
@@ -87,7 +90,9 @@ export async function POST(request: NextRequest) {
       currentWeight: weightValue,
     });
 
-    return NextResponse.json(weightLog, { status: 201 });
+    // Return the created weight log with cache control headers
+    const response = NextResponse.json(weightLog, { status: 201 });
+    return addCacheControlHeaders(response);
   } catch (error) {
     console.error("Error creating weight log:", error);
     return NextResponse.json(
@@ -97,17 +102,12 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// app/api/weight/[id]/route.ts
-import {
-  deleteWeightLog,
-  getWeightLogById,
-  updateWeightLog,
-} from "@/lib/firebase/models/weightLog";
+// app/api/weight/[id]/route.ts handling
 
 // PATCH endpoint to update a weight log
 export async function PATCH(
   request: NextRequest,
-  context: { params: { id: string } }
+  { params }: { params: { id: string } }
 ) {
   try {
     // Get token and validate user
@@ -117,7 +117,7 @@ export async function PATCH(
       return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     }
 
-    const logId = context.params.id;
+    const logId = params.id;
     if (!logId) {
       return NextResponse.json(
         { message: "Weight log ID is required" },
@@ -185,7 +185,10 @@ export async function PATCH(
       });
     }
 
-    return NextResponse.json({ message: "Weight log updated successfully" });
+    const response = NextResponse.json({
+      message: "Weight log updated successfully",
+    });
+    return addCacheControlHeaders(response);
   } catch (error) {
     console.error("Error updating weight log:", error);
     return NextResponse.json(
@@ -198,7 +201,7 @@ export async function PATCH(
 // DELETE endpoint to delete a weight log
 export async function DELETE(
   request: NextRequest,
-  context: { params: { id: string } }
+  { params }: { params: { id: string } }
 ) {
   try {
     // Get token and validate user
@@ -208,7 +211,7 @@ export async function DELETE(
       return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     }
 
-    const logId = context.params.id;
+    const logId = params.id;
     if (!logId) {
       return NextResponse.json(
         { message: "Weight log ID is required" },
@@ -246,7 +249,10 @@ export async function DELETE(
       });
     }
 
-    return NextResponse.json({ message: "Weight log deleted successfully" });
+    const response = NextResponse.json({
+      message: "Weight log deleted successfully",
+    });
+    return addCacheControlHeaders(response);
   } catch (error) {
     console.error("Error deleting weight log:", error);
     return NextResponse.json(

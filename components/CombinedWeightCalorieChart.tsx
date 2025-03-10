@@ -1,9 +1,6 @@
-// components/CombinedWeightCalorieChart.tsx
-"use client";
-
 import { Expand, Minimize2 } from "lucide-react";
 import { useSession } from "next-auth/react";
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Bar,
   CartesianGrid,
@@ -18,6 +15,7 @@ import {
   YAxis,
 } from "recharts";
 import { Button } from "./ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 
 interface ChartDataPoint {
   date: string;
@@ -41,7 +39,23 @@ interface TargetValues {
   fat?: number;
 }
 
-const CombinedWeightCalorieChart = ({ dateRange = "month" }) => {
+interface EnhancedCombinedChartProps {
+  dateRange?: "week" | "month" | "3months" | "year";
+  className?: string;
+  showWeightOnly?: boolean;
+  showCaloriesOnly?: boolean;
+  height?: number | string;
+}
+
+const EnhancedCombinedWeightCalorieChart: React.FC<
+  EnhancedCombinedChartProps
+> = ({
+  dateRange = "month",
+  className = "",
+  showWeightOnly = false,
+  showCaloriesOnly = false,
+  height = 400,
+}) => {
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
   const [targets, setTargets] = useState<TargetValues>({});
   const [isLoading, setIsLoading] = useState(true);
@@ -100,6 +114,16 @@ const CombinedWeightCalorieChart = ({ dateRange = "month" }) => {
     setIsFullScreen(!isFullScreen);
   };
 
+  // Format date for display
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    return new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      day: "numeric",
+    }).format(date);
+  };
+
+  // Load chart data
   useEffect(() => {
     const fetchChartData = async () => {
       setIsLoading(true);
@@ -179,7 +203,7 @@ const CombinedWeightCalorieChart = ({ dateRange = "month" }) => {
       const currentDate = new Date(startDate);
       currentDate.setDate(startDate.getDate() + i);
 
-      // Add some random fluctuation
+      // Add some random fluctuation for more realistic data
       const weightNoise = Math.random() * 1.5 - 0.75; // -0.75 to 0.75
       const caloriesNoise = Math.floor(Math.random() * 600) - 300; // -300 to 300
 
@@ -199,77 +223,119 @@ const CombinedWeightCalorieChart = ({ dateRange = "month" }) => {
         weightGoal: Number(idealWeight.toFixed(1)),
         calories: calories > 0 ? calories : 0,
         caloriesTarget,
+        protein: Math.round((calories * 0.3) / 4), // 30% of calories from protein
+        proteinTarget: Math.round((caloriesTarget * 0.3) / 4),
+        carbs: Math.round((calories * 0.5) / 4), // 50% of calories from carbs
+        carbsTarget: Math.round((caloriesTarget * 0.5) / 4),
+        fat: Math.round((calories * 0.2) / 9), // 20% of calories from fat
+        fatTarget: Math.round((caloriesTarget * 0.2) / 9),
       });
     }
 
     return data;
   };
 
-  // Format date for display
-  const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    return new Intl.DateTimeFormat("en-US", {
-      month: "short",
-      day: "numeric",
-    }).format(date);
-  };
-
-  // Customize tooltip
+  // Customize tooltip for the chart
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       return (
-        <div className="p-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded shadow-lg">
-          <p className="font-medium">{formatDate(label)}</p>
-          {payload.map((entry: any, index: number) => {
-            if (entry.name === "Weight") {
-              return (
-                <p key={index} style={{ color: entry.color }}>
-                  Weight: {entry.value} lbs
-                </p>
-              );
-            } else if (entry.name === "Weight Goal") {
-              return (
-                <p key={index} style={{ color: entry.color }}>
-                  Goal: {entry.value} lbs
-                </p>
-              );
-            } else if (entry.name === "Daily Calories") {
-              return (
-                <p key={index} style={{ color: entry.color }}>
-                  Calories: {entry.value}
-                </p>
-              );
-            } else if (entry.name === "Calorie Target") {
-              return (
-                <p key={index} style={{ color: entry.color }}>
-                  Target: {entry.value} cal
-                </p>
-              );
-            }
-            return null;
-          })}
+        <div className="p-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg">
+          <p className="font-medium mb-1">{formatDate(label)}</p>
+
+          {payload.some(
+            (entry: any) =>
+              entry.dataKey === "weight" || entry.dataKey === "weightGoal"
+          ) &&
+            !showCaloriesOnly && (
+              <div className="border-b dark:border-gray-700 mb-2 pb-2">
+                <p className="text-sm font-medium">Weight</p>
+                {payload.map((entry: any, index: number) => {
+                  if (entry.dataKey === "weight") {
+                    return (
+                      <p
+                        key={index}
+                        className="text-sm"
+                        style={{ color: entry.color }}
+                      >
+                        Current: {entry.value} lbs
+                      </p>
+                    );
+                  } else if (entry.dataKey === "weightGoal") {
+                    return (
+                      <p
+                        key={index}
+                        className="text-sm"
+                        style={{ color: entry.color }}
+                      >
+                        Goal: {entry.value} lbs
+                      </p>
+                    );
+                  }
+                  return null;
+                })}
+              </div>
+            )}
+
+          {payload.some(
+            (entry: any) =>
+              entry.dataKey === "calories" || entry.dataKey === "caloriesTarget"
+          ) &&
+            !showWeightOnly && (
+              <div>
+                <p className="text-sm font-medium">Calories</p>
+                {payload.map((entry: any, index: number) => {
+                  if (entry.dataKey === "calories") {
+                    return (
+                      <p
+                        key={index}
+                        className="text-sm"
+                        style={{ color: entry.color }}
+                      >
+                        Consumed: {entry.value}
+                      </p>
+                    );
+                  } else if (entry.dataKey === "caloriesTarget") {
+                    return (
+                      <p
+                        key={index}
+                        className="text-sm"
+                        style={{ color: entry.color }}
+                      >
+                        Target: {entry.value}
+                      </p>
+                    );
+                  }
+                  return null;
+                })}
+              </div>
+            )}
         </div>
       );
     }
     return null;
   };
 
-  // Determine color for calorie bars
-  const getBarColor = (entry: ChartDataPoint) => {
+  // Get bar color based on calorie target
+  const getCalorieBarColor = (entry: ChartDataPoint) => {
     if (!entry.calories || !entry.caloriesTarget) return "#10b981"; // Default green
     return entry.calories > entry.caloriesTarget ? "#ef4444" : "#10b981"; // Red if over target, green if under
   };
 
+  // Handle loading state
   if (isLoading) {
     return (
-      <div className="h-64 w-full bg-gray-100 dark:bg-gray-800 animate-pulse rounded-lg"></div>
+      <div
+        className={`h-64 w-full bg-gray-100 dark:bg-gray-800 animate-pulse rounded-lg ${className}`}
+      ></div>
     );
   }
 
   // If there's an error, show it
   if (error) {
     return (
-      <div className="h-64 w-full flex items-center justify-center">
+      <div
+        className={`h-64 w-full flex items-center justify-center ${className}`}
+      >
         <div className="text-center p-6">
           <p className="text-red-500 mb-2">Error loading chart data</p>
           <p className="text-sm text-gray-500">{error}</p>
@@ -281,7 +347,9 @@ const CombinedWeightCalorieChart = ({ dateRange = "month" }) => {
   // If there's no data, show a message
   if (!chartData || chartData.length === 0) {
     return (
-      <div className="h-64 w-full flex items-center justify-center bg-gray-50 dark:bg-gray-800 rounded-lg">
+      <div
+        className={`h-64 w-full flex items-center justify-center bg-gray-50 dark:bg-gray-800 rounded-lg ${className}`}
+      >
         <div className="text-center p-6">
           <p className="text-gray-500 dark:text-gray-400 mb-2">
             No data available for this time period
@@ -295,6 +363,7 @@ const CombinedWeightCalorieChart = ({ dateRange = "month" }) => {
   }
 
   // Get target values from data
+  const weightTarget = targets.weight || undefined;
   const calorieTarget = chartData[0]?.caloriesTarget || 2000;
 
   // Wrapper for the chart content
@@ -302,7 +371,7 @@ const CombinedWeightCalorieChart = ({ dateRange = "month" }) => {
     ? ({ children }: { children: React.ReactNode }) => (
         <div className="fixed inset-0 z-50 bg-white dark:bg-gray-900 p-4 flex flex-col">
           <div className="flex justify-between items-center mb-2">
-            <h3 className="font-bold">Weight and Calories Over Time</h3>
+            <h3 className="font-bold">Weight and Calories Progress</h3>
             <Button
               variant="outline"
               size="sm"
@@ -317,18 +386,28 @@ const CombinedWeightCalorieChart = ({ dateRange = "month" }) => {
         </div>
       )
     : ({ children }: { children: React.ReactNode }) => (
-        <div className="relative">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={toggleFullScreen}
-            className="absolute top-0 right-0 z-10"
+        <Card className={className}>
+          <CardHeader className="pb-2 flex flex-row items-center justify-between">
+            <CardTitle className="text-base">Progress Chart</CardTitle>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={toggleFullScreen}
+              className="h-8 px-2 text-xs"
+            >
+              <Expand className="h-3.5 w-3.5 mr-1" />
+              Fullscreen
+            </Button>
+          </CardHeader>
+          <CardContent
+            className="h-full" // Use a static class
+            style={{
+              height: typeof height === "number" ? `${height}px` : height,
+            }}
           >
-            <Expand className="h-4 w-4 mr-2" />
-            Fullscreen
-          </Button>
-          <div className="h-64 md:h-96 w-full">{children}</div>
-        </div>
+            {children}
+          </CardContent>
+        </Card>
       );
 
   return (
@@ -336,98 +415,111 @@ const CombinedWeightCalorieChart = ({ dateRange = "month" }) => {
       <ResponsiveContainer width="100%" height="100%">
         <ComposedChart
           data={chartData}
-          margin={{ top: 5, right: 30, left: 20, bottom: 15 }}
+          margin={{ top: 10, right: 30, left: 5, bottom: 20 }}
         >
           <CartesianGrid strokeDasharray="3 3" opacity={0.4} />
           <XAxis dataKey="date" tickFormatter={formatDate} minTickGap={30} />
-          <YAxis
-            yAxisId="left"
-            orientation="left"
-            domain={["auto", "auto"]}
-            label={{
-              value: "Weight (lbs)",
-              angle: -90,
-              position: "insideLeft",
-              style: { textAnchor: "middle" },
-              fill: "#1d4ed8",
-              fontSize: 12,
-            }}
-            tick={{ fill: "#1d4ed8" }}
-          />
-          <YAxis
-            yAxisId="right"
-            orientation="right"
-            domain={[0, "dataMax + 500"]}
-            label={{
-              value: "Calories",
-              angle: 90,
-              position: "insideRight",
-              style: { textAnchor: "middle" },
-              fill: "#10b981",
-              fontSize: 12,
-            }}
-            tick={{ fill: "#10b981" }}
-          />
-          <Tooltip content={<CustomTooltip />} />
-          <Legend />
 
-          {/* Calorie bars */}
-          <Bar
-            dataKey="calories"
-            name="Daily Calories"
-            yAxisId="right"
-            fill="#10b981"
-            strokeWidth={0}
-            opacity={0.7}
-            barSize={8}
-            radius={[2, 2, 0, 0]}
-          >
-            {chartData.map((entry, index) => (
-              <Cell key={`cell-${index}`} fill={getBarColor(entry)} />
-            ))}
-          </Bar>
-
-          {/* Calorie target reference line */}
-          <ReferenceLine
-            y={calorieTarget}
-            yAxisId="right"
-            stroke="#ef4444"
-            strokeDasharray="5 5"
-            label={{
-              value: "Target",
-              position: "right",
-              fill: "#ef4444",
-              fontSize: 10,
-            }}
-          />
-
-          {/* Weight line */}
-          {chartData.some((d) => d.weight !== undefined) && (
-            <Line
-              type="monotone"
-              dataKey="weight"
-              name="Weight"
-              yAxisId="left"
-              stroke="#3b82f6"
-              strokeWidth={2}
-              dot={{ r: 2, fill: "#2563eb" }}
-              activeDot={{ r: 4 }}
-              connectNulls={true}
+          {/* Weight Y-Axis - only show if not in calories-only mode */}
+          {!showCaloriesOnly && (
+            <YAxis
+              yAxisId="weight"
+              orientation="left"
+              domain={["auto", "auto"]}
+              label={{
+                value: "Weight (lbs)",
+                angle: -90,
+                position: "insideLeft",
+                style: { textAnchor: "middle" },
+                fill: "#1d4ed8",
+                fontSize: 12,
+              }}
+              tick={{ fill: "#1d4ed8" }}
             />
           )}
 
-          {/* Weight goal line */}
-          {chartData.some((d) => d.weightGoal !== undefined) && (
-            <Line
-              type="monotone"
-              dataKey="weightGoal"
-              name="Weight Goal"
-              yAxisId="left"
-              stroke="#93c5fd"
-              strokeWidth={2}
+          {/* Calories Y-Axis - only show if not in weight-only mode */}
+          {!showWeightOnly && (
+            <YAxis
+              yAxisId="calories"
+              orientation="right"
+              domain={[0, "dataMax + 500"]}
+              label={{
+                value: "Calories",
+                angle: 90,
+                position: "insideRight",
+                style: { textAnchor: "middle" },
+                fill: "#10b981",
+                fontSize: 12,
+              }}
+              tick={{ fill: "#10b981" }}
+            />
+          )}
+
+          {/* Add tooltip and legend */}
+          <Tooltip content={<CustomTooltip />} />
+          <Legend />
+
+          {/* Weight Data - only if not in calories-only mode */}
+          {!showCaloriesOnly &&
+            chartData.some((d) => d.weight !== undefined) && (
+              <Line
+                type="monotone"
+                dataKey="weight"
+                name="Current Weight"
+                yAxisId="weight"
+                stroke="#3b82f6"
+                strokeWidth={3}
+                dot={{ r: 3, fill: "#2563eb" }}
+                activeDot={{ r: 5 }}
+                connectNulls={true}
+              />
+            )}
+
+          {/* Weight Goal - only if not in calories-only mode */}
+          {!showCaloriesOnly &&
+            chartData.some((d) => d.weightGoal !== undefined) && (
+              <Line
+                type="monotone"
+                dataKey="weightGoal"
+                name="Target Weight"
+                yAxisId="weight"
+                stroke="#93c5fd"
+                strokeWidth={2}
+                strokeDasharray="5 5"
+                dot={false}
+                connectNulls={true}
+              />
+            )}
+
+          {/* Calorie Bars - only if not in weight-only mode */}
+          {!showWeightOnly && (
+            <Bar
+              dataKey="calories"
+              name="Daily Calories"
+              yAxisId="calories"
+              barSize={8}
+              radius={[2, 2, 0, 0]}
+            >
+              {chartData.map((entry, index) => (
+                <Cell key={`cell-${index}`} fill={getCalorieBarColor(entry)} />
+              ))}
+            </Bar>
+          )}
+
+          {/* Calorie Target Reference Line - only if not in weight-only mode */}
+          {!showWeightOnly && (
+            <ReferenceLine
+              y={calorieTarget}
+              yAxisId="calories"
+              stroke="#ef4444"
               strokeDasharray="5 5"
-              dot={false}
-              connectNulls={true}
+              label={{
+                value: "Calorie Target",
+                position: "right",
+                fill: "#ef4444",
+                fontSize: 10,
+              }}
             />
           )}
         </ComposedChart>
@@ -436,4 +528,4 @@ const CombinedWeightCalorieChart = ({ dateRange = "month" }) => {
   );
 };
 
-export default CombinedWeightCalorieChart;
+export default EnhancedCombinedWeightCalorieChart;

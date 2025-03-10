@@ -1,4 +1,4 @@
-// app/api/meals/[id]/route.ts
+// app/api/meals/[id]/route.ts - Updated version
 import {
   deleteMeal,
   getMealById,
@@ -8,7 +8,10 @@ import { getToken } from "next-auth/jwt";
 import { NextRequest, NextResponse } from "next/server";
 
 // PATCH endpoint to update a meal
-export async function PATCH(request: NextRequest, context: any) {
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
     // Get session token for authentication
     const token = await getToken({ req: request });
@@ -17,7 +20,7 @@ export async function PATCH(request: NextRequest, context: any) {
       return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     }
 
-    const mealId = context.params.id;
+    const mealId = params.id;
     if (!mealId) {
       return NextResponse.json(
         { message: "Meal ID is required" },
@@ -55,7 +58,11 @@ export async function PATCH(request: NextRequest, context: any) {
 
     // Return success response with no caching
     const response = NextResponse.json(
-      { message: "Meal updated successfully" },
+      {
+        message: "Meal updated successfully",
+        success: true,
+        mealId,
+      },
       { status: 200 }
     );
 
@@ -75,6 +82,7 @@ export async function PATCH(request: NextRequest, context: any) {
       {
         message: "Failed to update meal",
         error: error instanceof Error ? error.message : String(error),
+        success: false,
       },
       { status: 500 }
     );
@@ -82,7 +90,10 @@ export async function PATCH(request: NextRequest, context: any) {
 }
 
 // DELETE endpoint to delete a meal
-export async function DELETE(request: NextRequest, context: any) {
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
     // Get session token for authentication
     const token = await getToken({ req: request });
@@ -91,7 +102,7 @@ export async function DELETE(request: NextRequest, context: any) {
       return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     }
 
-    const mealId = context.params.id;
+    const mealId = params.id;
     if (!mealId) {
       return NextResponse.json(
         { message: "Meal ID is required" },
@@ -118,7 +129,11 @@ export async function DELETE(request: NextRequest, context: any) {
 
     // Return success response with no caching
     const response = NextResponse.json(
-      { message: "Meal deleted successfully" },
+      {
+        message: "Meal deleted successfully",
+        success: true,
+        mealId,
+      },
       { status: 200 }
     );
 
@@ -138,6 +153,7 @@ export async function DELETE(request: NextRequest, context: any) {
       {
         message: "Failed to delete meal",
         error: error instanceof Error ? error.message : String(error),
+        success: false,
       },
       { status: 500 }
     );

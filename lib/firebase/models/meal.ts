@@ -163,6 +163,11 @@ export async function getMealById(id: string): Promise<Meal | null> {
 /**
  * Update an existing meal
  */
+// Modified updateMeal function in lib/firebase/models/meal.ts
+
+/**
+ * Update an existing meal
+ */
 export async function updateMeal(
   id: string,
   mealData: Partial<Meal>
@@ -180,22 +185,51 @@ export async function updateMeal(
     const { userId, ...updateData } = mealData;
 
     // Format the date properly if provided
+    const formattedUpdates: any = { ...updateData };
     if (updateData.date) {
-      // If it's already a Date object, keep it, otherwise convert
+      // If it's already a Date object or Timestamp, keep it, otherwise convert
       if (
         !(updateData.date instanceof Date) &&
         !(updateData.date instanceof Timestamp)
       ) {
-        updateData.date = new Date(updateData.date);
+        formattedUpdates.date = new Date(updateData.date);
       }
     }
 
-    const updatedMeal = {
-      ...updateData,
-      updatedAt: serverTimestamp(),
-    };
+    // Ensure numeric fields are properly formatted
+    if (updateData.calories !== undefined) {
+      formattedUpdates.calories =
+        typeof updateData.calories === "string"
+          ? parseFloat(updateData.calories)
+          : updateData.calories;
+    }
 
-    await updateDoc(mealRef, updatedMeal);
+    if (updateData.protein !== undefined) {
+      formattedUpdates.protein =
+        typeof updateData.protein === "string"
+          ? parseFloat(updateData.protein)
+          : updateData.protein;
+    }
+
+    if (updateData.carbs !== undefined) {
+      formattedUpdates.carbs =
+        typeof updateData.carbs === "string"
+          ? parseFloat(updateData.carbs)
+          : updateData.carbs;
+    }
+
+    if (updateData.fat !== undefined) {
+      formattedUpdates.fat =
+        typeof updateData.fat === "string"
+          ? parseFloat(updateData.fat)
+          : updateData.fat;
+    }
+
+    // Add server timestamp for updatedAt
+    formattedUpdates.updatedAt = serverTimestamp();
+
+    await updateDoc(mealRef, formattedUpdates);
+    console.log(`Successfully updated meal with ID: ${id}`);
   } catch (error) {
     console.error("Error updating meal:", error);
     throw new Error(
@@ -212,6 +246,13 @@ export async function updateMeal(
 export async function deleteMeal(id: string): Promise<void> {
   try {
     const mealRef = doc(db, "meals", id);
+
+    // Check if the meal exists before trying to delete
+    const mealSnap = await getDoc(mealRef);
+    if (!mealSnap.exists()) {
+      throw new Error("Meal not found");
+    }
+
     await deleteDoc(mealRef);
   } catch (error) {
     console.error("Error deleting meal:", error);

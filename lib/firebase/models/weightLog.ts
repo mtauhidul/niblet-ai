@@ -130,6 +130,11 @@ export async function getWeightLogById(id: string): Promise<WeightLog | null> {
 /**
  * Update a weight log
  */
+// Modified updateWeightLog function in lib/firebase/models/weightLog.ts
+
+/**
+ * Update a weight log
+ */
 export async function updateWeightLog(
   id: string,
   updates: Partial<WeightLog>
@@ -137,13 +142,41 @@ export async function updateWeightLog(
   try {
     const weightLogRef = doc(db, "weightLogs", id);
 
-    // Don't allow changing userId
+    // First check if the log exists
+    const logSnapshot = await getDoc(weightLogRef);
+    if (!logSnapshot.exists()) {
+      throw new Error("Weight log not found");
+    }
+
+    // Don't allow changing userId to prevent unauthorized access
     const { userId, ...updateData } = updates;
 
-    await updateDoc(weightLogRef, updateData);
+    // Ensure date is in the correct format if provided
+    const formattedUpdates: any = { ...updateData };
+    if (updateData.date) {
+      // Check if it's already a Date object or Timestamp
+      if (
+        !(updateData.date instanceof Date) &&
+        !(updateData.date instanceof Timestamp)
+      ) {
+        formattedUpdates.date = new Date(updateData.date);
+      }
+    }
+
+    // Add server timestamp for updatedAt
+    formattedUpdates.updatedAt = serverTimestamp();
+
+    // Perform the update
+    await updateDoc(weightLogRef, formattedUpdates);
+
+    console.log(`Successfully updated weight log with ID: ${id}`);
   } catch (error) {
     console.error("Error updating weight log:", error);
-    throw new Error("Failed to update weight log");
+    throw new Error(
+      `Failed to update weight log: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
   }
 }
 
@@ -153,10 +186,21 @@ export async function updateWeightLog(
 export async function deleteWeightLog(id: string): Promise<void> {
   try {
     const weightLogRef = doc(db, "weightLogs", id);
+
+    // Verify the document exists before deleting
+    const docSnap = await getDoc(weightLogRef);
+    if (!docSnap.exists()) {
+      throw new Error("Weight log not found");
+    }
+
     await deleteDoc(weightLogRef);
   } catch (error) {
     console.error("Error deleting weight log:", error);
-    throw new Error("Failed to delete weight log");
+    throw new Error(
+      `Failed to delete weight log: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
   }
 }
 

@@ -204,7 +204,7 @@ const WeightLogComponent = ({
     }
   };
 
-  // Handle updating a weight log
+  // Handle updating a weight log - FIXED
   const handleUpdateWeightLog = async () => {
     if (!currentLog?.id || !session?.user?.id) return;
 
@@ -215,8 +215,9 @@ const WeightLogComponent = ({
 
     setIsLoading(true);
     try {
+      // Use PATCH method to update existing log rather than creating a new one
       const response = await fetch(`/api/weight/${currentLog.id}`, {
-        method: "PATCH",
+        method: "PATCH", // Make sure we're using PATCH not POST
         headers: {
           "Content-Type": "application/json",
         },
@@ -228,19 +229,24 @@ const WeightLogComponent = ({
       });
 
       if (response.ok) {
-        // Update local state with the edited log
+        // Update the local state correctly
         const updatedLogs = weightLogs.map((log) =>
           log.id === currentLog.id
             ? {
                 ...log,
                 weight: parseFloat(editWeight),
                 date: new Date(editDate),
-                note: editNote || undefined,
+                note: editNote,
               }
             : log
         );
 
-        setWeightLogs(updatedLogs);
+        // Sort by date (newest first)
+        const sortedLogs = [...updatedLogs].sort(
+          (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+        );
+
+        setWeightLogs(sortedLogs);
         setShowEditDialog(false);
         setCurrentLog(null);
 
@@ -258,24 +264,38 @@ const WeightLogComponent = ({
     }
   };
 
-  // Handle weight deletion
+  // Handle weight deletion - FIXED
   const handleDeleteWeightLog = async () => {
     if (!deletingLogId || !session?.user?.id) return;
 
     setIsDeleting(true);
     try {
+      // Make a proper DELETE request to the API endpoint
       const response = await fetch(`/api/weight/${deletingLogId}`, {
         method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+        },
       });
 
       if (response.ok) {
         // Remove the deleted log from state
-        setWeightLogs(weightLogs.filter((log) => log.id !== deletingLogId));
+        setWeightLogs((prevLogs) =>
+          prevLogs.filter((log) => log.id !== deletingLogId)
+        );
+
         toast.success("Weight log deleted successfully");
         if (onWeightLogged) onWeightLogged();
       } else {
-        const error = await response.json();
-        toast.error(error.message || "Failed to delete weight log");
+        // Improved error handling
+        let errorMessage = "Failed to delete weight log";
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.message || errorMessage;
+        } catch (e) {
+          // If we can't parse the JSON, use default error message
+        }
+        toast.error(errorMessage);
       }
     } catch (error) {
       console.error("Error deleting weight log:", error);

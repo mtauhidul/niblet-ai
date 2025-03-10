@@ -30,7 +30,7 @@ import TodaysMeals from "./TodaysMeals";
 import { Button } from "./ui/button";
 import { Skeleton } from "./ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
-import VoiceChat from "./VoiceChat";
+import VoiceChatModal from "./VoiceCallModal";
 import WeightLogComponent from "./WeightLogComponent"; // Import the new component
 
 interface CollapsibleSectionProps {
@@ -441,19 +441,18 @@ const Dashboard = ({
       {isVoiceChatOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white dark:bg-gray-800 rounded-lg w-full max-w-lg p-4 m-4">
-            <VoiceChat
-              threadId={chatThreadId}
-              assistantId={assistantId}
-              aiPersonality={aiPersonality}
-              onMessageReceived={(message) => {
-                // Handle new messages from voice chat
-              }}
-              onMealLogged={combinedHandleMealLogged}
-              onWeightLogged={handleWeightLogged}
-              onEndCall={() => {
+            <VoiceChatModal
+              isOpen={isVoiceChatOpen}
+              onClose={() => {
                 setIsVoiceChatOpen(false);
                 setIsCalling(false);
               }}
+              threadId={chatThreadId}
+              assistantId={assistantId}
+              aiPersonality={aiPersonality}
+              onMessageReceived={handleVoiceCallMessage}
+              onMealLogged={combinedHandleMealLogged}
+              onWeightLogged={handleWeightLogged}
             />
           </div>
         </div>

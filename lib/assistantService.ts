@@ -77,6 +77,142 @@ export const personalities: Record<PersonalityKey, Personality> = {
   },
 };
 
+// Handle meal update tool calls
+const handleMealUpdateTool = async (toolArgs: any, userId: string) => {
+  try {
+    if (!toolArgs.meal_id) {
+      return {
+        success: false,
+        message: "Meal ID is required for updating a meal",
+      };
+    }
+
+    // First check if the meal exists and belongs to the user
+    const response = await fetch(`/api/meals/${toolArgs.meal_id}`, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        return {
+          success: false,
+          message: "Meal not found",
+        };
+      }
+
+      const errorData = await response.json();
+      return {
+        success: false,
+        message: errorData.message || "Error checking meal",
+      };
+    }
+
+    // Prepare update data
+    const updateData: any = {};
+
+    if (toolArgs.meal_name) updateData.name = toolArgs.meal_name;
+    if (toolArgs.meal_type) updateData.mealType = toolArgs.meal_type;
+    if (toolArgs.calories !== undefined)
+      updateData.calories = toolArgs.calories;
+    if (toolArgs.protein !== undefined) updateData.protein = toolArgs.protein;
+    if (toolArgs.carbs !== undefined) updateData.carbs = toolArgs.carbs;
+    if (toolArgs.fat !== undefined) updateData.fat = toolArgs.fat;
+    if (toolArgs.date) updateData.date = new Date(toolArgs.date);
+    if (toolArgs.items) updateData.items = toolArgs.items;
+
+    // Send update request
+    const updateResponse = await fetch(`/api/meals/${toolArgs.meal_id}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(updateData),
+    });
+
+    if (!updateResponse.ok) {
+      const errorData = await updateResponse.json();
+      return {
+        success: false,
+        message: errorData.message || "Failed to update meal",
+      };
+    }
+
+    const result = await updateResponse.json();
+    return {
+      success: true,
+      message: `Successfully updated meal: ${
+        toolArgs.meal_name || "Unknown meal"
+      }`,
+      mealId: toolArgs.meal_id,
+    };
+  } catch (error) {
+    console.error("Error updating meal:", error);
+    return {
+      success: false,
+      message: `Error updating meal: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    };
+  }
+};
+
+// Handle weight update tool calls
+const handleWeightUpdateTool = async (toolArgs: any, userId: string) => {
+  try {
+    if (!toolArgs.weight_log_id) {
+      return {
+        success: false,
+        message: "Weight log ID is required for updating a weight log",
+      };
+    }
+
+    // Prepare update data
+    const updateData: any = {};
+
+    if (toolArgs.weight !== undefined) updateData.weight = toolArgs.weight;
+    if (toolArgs.date) updateData.date = new Date(toolArgs.date);
+    if (toolArgs.note !== undefined) updateData.note = toolArgs.note;
+
+    // Send update request
+    const updateResponse = await fetch(
+      `/api/weight/${toolArgs.weight_log_id}`,
+      {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(updateData),
+      }
+    );
+
+    if (!updateResponse.ok) {
+      const errorData = await updateResponse.json();
+      return {
+        success: false,
+        message: errorData.message || "Failed to update weight log",
+      };
+    }
+
+    const result = await updateResponse.json();
+    return {
+      success: true,
+      message: `Successfully updated weight log to ${toolArgs.weight} lbs`,
+      weightLogId: toolArgs.weight_log_id,
+    };
+  } catch (error) {
+    console.error("Error updating weight log:", error);
+    return {
+      success: false,
+      message: `Error updating weight log: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    };
+  }
+};
+
 // Function to initialize or get assistant with retry logic
 export const getOrCreateAssistant = async (
   personality: PersonalityKey = "best-friend"
@@ -663,7 +799,8 @@ export const runAssistant = async (
   threadId: string,
   assistantId: string,
   personality: PersonalityKey = "best-friend",
-  onToolCall?: (toolName: string, toolArgs: any) => Promise<any>
+  onToolCall?: (toolName: string, toolArgs: any) => Promise<any>,
+  userId?: string
 ): Promise<AssistantMessage[]> => {
   const openai = getOpenAIClient();
   if (!openai) return [];
@@ -744,7 +881,8 @@ export const runAssistant = async (
       run.id,
       10,
       1000,
-      onToolCall
+      onToolCall,
+      userId
     );
 
     // Update run state when complete
@@ -766,7 +904,6 @@ export const runAssistant = async (
     );
 
     // If this was an initial welcome, filter out the system prompt message
-    // In assistantService.ts, update the runAssistant function
     const assistantMessages = messages.data
       .filter((msg) => {
         // Filter out system messages or prompts
@@ -805,7 +942,8 @@ const waitForRunCompletion = async (
   runId: string,
   maxRetries = 10,
   retryDelay = 1000,
-  onToolCall?: (toolName: string, toolArgs: any) => Promise<any>
+  onToolCall?: (toolName: string, toolArgs: any) => Promise<any>,
+  userId?: string
 ) => {
   let retriesCount = 0;
   let runStatus;
@@ -851,7 +989,15 @@ const waitForRunCompletion = async (
             };
 
             try {
-              output = await onToolCall(functionName, functionArgs);
+              // Handle different tool types based on the function name
+              if (functionName === "update_meal" && userId) {
+                output = await handleMealUpdateTool(functionArgs, userId);
+              } else if (functionName === "update_weight" && userId) {
+                output = await handleWeightUpdateTool(functionArgs, userId);
+              } else {
+                // Default tool handling through the provided callback
+                output = await onToolCall(functionName, functionArgs);
+              }
             } catch (error) {
               console.error(`Error executing tool ${functionName}:`, error);
             }
