@@ -1,4 +1,4 @@
-// lib/runStateManager.ts
+// lib/runStateManager.ts - Enhanced with better timeout handling
 
 /**
  * Utility to manage OpenAI thread run states globally
@@ -15,7 +15,10 @@ interface RunState {
 class RunStateManager {
   private static instance: RunStateManager;
   private runStates: Map<string, RunState> = new Map();
-  private timeoutDuration = 60000; // 60 seconds
+  // Increased from 60 seconds to 120 seconds to account for image processing
+  private timeoutDuration = 120000; // 120 seconds
+  // Add a timeout for waiting
+  private waitTimeout = 30000; // 30 seconds
 
   private constructor() {
     // Start a cleanup process to clear stale run states
@@ -88,20 +91,39 @@ class RunStateManager {
   }
 
   /**
-   * Wait for a run to complete with a timeout
+   * Wait for a run to complete with a specified timeout
+   * Enhanced to handle longer timeouts for image processing
    */
   public async waitForRunCompletion(
     threadId: string,
-    timeout = 15000
+    timeout = this.waitTimeout
   ): Promise<boolean> {
     const startTime = Date.now();
+    console.log(
+      `Waiting for run completion on thread ${threadId} with timeout: ${timeout}ms`
+    );
+
+    // Add progressive backoff for polling
+    let pollInterval = 500; // Start with 500ms
+    const maxPollInterval = 3000; // Max 3 seconds
+    const backoffFactor = 1.5;
 
     while (this.hasActiveRun(threadId) && Date.now() - startTime < timeout) {
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await new Promise((resolve) => setTimeout(resolve, pollInterval));
+
+      // Increase polling interval with backoff
+      pollInterval = Math.min(pollInterval * backoffFactor, maxPollInterval);
     }
 
+    const completed = !this.hasActiveRun(threadId);
+    console.log(
+      `Wait for run completed: ${completed}, time taken: ${
+        Date.now() - startTime
+      }ms`
+    );
+
     // Return true if run completed, false if timed out
-    return !this.hasActiveRun(threadId);
+    return completed;
   }
 
   /**
@@ -152,9 +174,13 @@ class RunStateManager {
     return null;
   }
 
-  // Add a method to allow changing the timeout
+  // Set custom timeouts
   public setTimeoutDuration(milliseconds: number): void {
     this.timeoutDuration = milliseconds;
+  }
+
+  public setWaitTimeout(milliseconds: number): void {
+    this.waitTimeout = milliseconds;
   }
 }
 

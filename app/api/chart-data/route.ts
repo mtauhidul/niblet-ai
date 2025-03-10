@@ -11,6 +11,13 @@ import { getToken } from "next-auth/jwt";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(request: NextRequest) {
+  const headers = new Headers();
+  headers.set(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate"
+  );
+  headers.set("Pragma", "no-cache");
+  headers.set("Expires", "0");
   try {
     // Add Cache-Control headers to prevent caching
     const headers = new Headers();

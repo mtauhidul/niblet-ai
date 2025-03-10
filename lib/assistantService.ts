@@ -936,17 +936,29 @@ export const runAssistant = async (
 };
 
 // Update the waitForRunCompletion function to maintain thread state
+// This is the updated waitForRunCompletion function to be placed in lib/assistantService.ts
+
+/**
+ * Enhanced version of waitForRunCompletion with better error handling and recovery
+ */
 const waitForRunCompletion = async (
   openai: OpenAI,
   threadId: string,
   runId: string,
-  maxRetries = 10,
-  retryDelay = 1000,
+  maxRetries = 15, // Increased from 10 to 15
+  retryDelay = 2000, // Increased from 1000 to 2000ms
   onToolCall?: (toolName: string, toolArgs: any) => Promise<any>,
   userId?: string
 ) => {
   let retriesCount = 0;
   let runStatus;
+  let lastError = null;
+
+  // For images, we need to allow more processing time
+  const isImageProcessing =
+    runStateManager.getRunInfo(threadId)?.createdAt || 0;
+  const maxWaitTime = isImageProcessing ? 60000 : 30000; // 60 seconds for images, 30 otherwise
+  const startTime = Date.now();
 
   while (retriesCount < maxRetries) {
     try {
@@ -954,6 +966,17 @@ const waitForRunCompletion = async (
 
       // Update run state timestamp
       runStateManager.updateRunActivity(threadId);
+
+      // Check for timeout based on total elapsed time
+      if (Date.now() - startTime > maxWaitTime) {
+        console.warn(
+          `Run ${runId} exceeded maximum wait time of ${maxWaitTime}ms`
+        );
+        runStateManager.setRunInactive(threadId);
+
+        // Instead of throwing an error, return with a "timed_out" status
+        return { status: "timed_out", id: runId, thread_id: threadId };
+      }
 
       if (
         ["completed", "failed", "cancelled", "expired"].includes(
@@ -1009,16 +1032,24 @@ const waitForRunCompletion = async (
           })
         );
 
-        // Submit the tool outputs back to the assistant
-        await openai.beta.threads.runs.submitToolOutputs(threadId, runId, {
-          tool_outputs: toolOutputs,
-        });
+        try {
+          // Submit the tool outputs back to the assistant
+          await openai.beta.threads.runs.submitToolOutputs(threadId, runId, {
+            tool_outputs: toolOutputs,
+          });
+          console.log("Tool outputs submitted, continuing run");
 
-        console.log("Tool outputs submitted, continuing run");
+          // Reset retry counter since we made progress
+          retriesCount = 0;
+        } catch (error) {
+          console.error("Error submitting tool outputs:", error);
+          retriesCount++;
+        }
       }
 
-      // Wait before checking again
-      await new Promise((resolve) => setTimeout(resolve, retryDelay));
+      // Wait before checking again - use exponential backoff
+      const adjustedDelay = retryDelay * Math.pow(1.5, retriesCount);
+      await new Promise((resolve) => setTimeout(resolve, adjustedDelay));
       retriesCount++;
     } catch (error) {
       // If the error is a rate limit error, wait longer and try again
@@ -1028,19 +1059,26 @@ const waitForRunCompletion = async (
         retriesCount++;
       } else {
         console.error("Error in run status polling:", error);
+        lastError = error;
 
-        // Reset run state on error
-        runStateManager.setRunInactive(threadId);
-
-        throw error;
+        // For other errors, try a few more times but increment retry count faster
+        retriesCount += 2;
+        await new Promise((resolve) => setTimeout(resolve, retryDelay));
       }
     }
   }
 
-  // Reset run state after timeout
+  // Reset run state after max retries
+  console.warn(`Run ${runId} did not complete within ${maxRetries} retries`);
   runStateManager.setRunInactive(threadId);
 
-  throw new Error(`Run did not complete within ${maxRetries} retries`);
+  // If the run timed out, return a special status rather than throwing
+  return {
+    status: "timed_out",
+    id: runId,
+    thread_id: threadId,
+    error: lastError,
+  };
 };
 
 // Transcribe audio with retry mechanism

@@ -17,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import eventEmitter from "@/lib/events";
 import type { Meal } from "@/lib/firebase/models/meal";
 import { format, subDays } from "date-fns";
 import { useEffect, useState } from "react";
@@ -183,6 +184,7 @@ const EditMealModal: React.FC<EditMealModalProps> = ({
       }
 
       console.log("Meal updated successfully:", responseData);
+      eventEmitter.emit("meal-updated");
 
       // Close modal and trigger refresh
       onOpenChange(false);

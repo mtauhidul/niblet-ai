@@ -12,6 +12,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import eventEmitter from "@/lib/events";
 import { format, subDays } from "date-fns";
 import { Edit, PlusCircle, Scale, Trash } from "lucide-react";
 import { useSession } from "next-auth/react";
@@ -27,7 +28,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "./ui/alert-dialog";
-import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
+import { Card, CardContent, CardHeader } from "./ui/card";
 import { Progress } from "./ui/progress";
 import {
   Select,
@@ -78,21 +79,65 @@ const WeightLogComponent = ({
   const [editDate, setEditDate] = useState("");
   const [editNote, setEditNote] = useState("");
 
+  // Load weight logs
+  const fetchWeightLogs = async () => {
+    if (!session?.user?.id) return;
+
+    setIsLoading(true);
+    try {
+      const response = await fetch("/api/weight?limit=10");
+      if (response.ok) {
+        const data = await response.json();
+        // Convert date strings to Date objects and sort by date (newest first)
+        const formattedLogs = data
+          .map((log: any) => ({
+            ...log,
+            date: new Date(log.date),
+          }))
+          .sort(
+            (a: WeightLog, b: WeightLog) =>
+              new Date(b.date).getTime() - new Date(a.date).getTime()
+          );
+
+        setWeightLogs(formattedLogs);
+        console.log("Weight logs loaded:", formattedLogs);
+      } else {
+        toast.error("Failed to load weight logs");
+      }
+    } catch (error) {
+      console.error("Error fetching weight logs:", error);
+      toast.error("Error loading weight data");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Calculate progress
-  const currentWeightValue =
-    weightLogs.length > 0 ? weightLogs[0].weight : startWeight || 0;
-  const progressPercentage =
-    targetWeight && startWeight && currentWeightValue
-      ? Math.min(
-          100,
-          Math.max(
-            0,
-            ((startWeight - currentWeightValue) /
-              (startWeight - targetWeight)) *
-              100
-          )
-        )
-      : 0;
+  const getCurrentWeight = () => {
+    if (weightLogs.length > 0) {
+      return weightLogs[0].weight;
+    }
+    return startWeight || 0;
+  };
+
+  const currentWeightValue = getCurrentWeight();
+
+  const calculateProgressPercentage = () => {
+    if (!targetWeight || !startWeight || !currentWeightValue) {
+      return 0;
+    }
+
+    const totalToLose = startWeight - targetWeight;
+    if (totalToLose === 0) return 100; // Already at target
+
+    const amountLost = startWeight - currentWeightValue;
+    const percentage = (amountLost / totalToLose) * 100;
+
+    // Ensure the percentage is between 0 and 100
+    return Math.min(100, Math.max(0, percentage));
+  };
+
+  const progressPercentage = calculateProgressPercentage();
 
   // Format progress based on goal (loss or gain)
   const isWeightLoss =
@@ -101,35 +146,23 @@ const WeightLogComponent = ({
     startWeight && currentWeightValue ? startWeight - currentWeightValue : 0;
   const formattedChange = isWeightLoss ? weightChange : -weightChange;
 
-  // Load weight logs
+  // Load weight logs when component mounts or session changes
   useEffect(() => {
-    if (!session?.user?.id) return;
-
-    const fetchWeightLogs = async () => {
-      setIsLoading(true);
-      try {
-        const response = await fetch("/api/weight?limit=10");
-        if (response.ok) {
-          const data = await response.json();
-          // Convert date strings to Date objects
-          const formattedLogs = data.map((log: any) => ({
-            ...log,
-            date: new Date(log.date),
-          }));
-          setWeightLogs(formattedLogs);
-        } else {
-          toast.error("Failed to load weight logs");
-        }
-      } catch (error) {
-        console.error("Error fetching weight logs:", error);
-        toast.error("Error loading weight data");
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
     fetchWeightLogs();
   }, [session?.user?.id]);
+
+  // Listen for weight update events
+  useEffect(() => {
+    const handleWeightUpdate = () => {
+      fetchWeightLogs();
+    };
+
+    eventEmitter.on("weight-updated", handleWeightUpdate);
+
+    return () => {
+      eventEmitter.off("weight-updated", handleWeightUpdate);
+    };
+  }, []);
 
   // Generate date options for the last 7 days
   const getDateOptions = () => {
@@ -177,20 +210,26 @@ const WeightLogComponent = ({
 
       if (response.ok) {
         const newLog = await response.json();
-        setWeightLogs([
+
+        // Add the new log and re-sort
+        const updatedLogs = [
           {
             ...newLog,
             date: new Date(newLog.date),
           },
           ...weightLogs,
-        ]);
+        ].sort(
+          (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+        );
 
+        setWeightLogs(updatedLogs);
         setShowAddDialog(false);
         setNewWeight("");
         setNewDate(format(new Date(), "yyyy-MM-dd"));
         setNewNote("");
 
         toast.success("Weight logged successfully");
+        eventEmitter.emit("weight-updated");
         if (onWeightLogged) onWeightLogged();
       } else {
         const error = await response.json();
@@ -204,7 +243,7 @@ const WeightLogComponent = ({
     }
   };
 
-  // Handle updating a weight log - FIXED
+  // Handle updating a weight log
   const handleUpdateWeightLog = async () => {
     if (!currentLog?.id || !session?.user?.id) return;
 
@@ -215,9 +254,8 @@ const WeightLogComponent = ({
 
     setIsLoading(true);
     try {
-      // Use PATCH method to update existing log rather than creating a new one
       const response = await fetch(`/api/weight/${currentLog.id}`, {
-        method: "PATCH", // Make sure we're using PATCH not POST
+        method: "PATCH",
         headers: {
           "Content-Type": "application/json",
         },
@@ -251,6 +289,7 @@ const WeightLogComponent = ({
         setCurrentLog(null);
 
         toast.success("Weight updated successfully");
+        eventEmitter.emit("weight-updated");
         if (onWeightLogged) onWeightLogged();
       } else {
         const error = await response.json();
@@ -264,13 +303,12 @@ const WeightLogComponent = ({
     }
   };
 
-  // Handle weight deletion - FIXED
+  // Handle weight deletion
   const handleDeleteWeightLog = async () => {
     if (!deletingLogId || !session?.user?.id) return;
 
     setIsDeleting(true);
     try {
-      // Make a proper DELETE request to the API endpoint
       const response = await fetch(`/api/weight/${deletingLogId}`, {
         method: "DELETE",
         headers: {
@@ -280,14 +318,15 @@ const WeightLogComponent = ({
 
       if (response.ok) {
         // Remove the deleted log from state
-        setWeightLogs((prevLogs) =>
-          prevLogs.filter((log) => log.id !== deletingLogId)
+        const updatedLogs = weightLogs.filter(
+          (log) => log.id !== deletingLogId
         );
+        setWeightLogs(updatedLogs);
 
         toast.success("Weight log deleted successfully");
+        eventEmitter.emit("weight-updated");
         if (onWeightLogged) onWeightLogged();
       } else {
-        // Improved error handling
         let errorMessage = "Failed to delete weight log";
         try {
           const errorData = await response.json();
@@ -325,9 +364,6 @@ const WeightLogComponent = ({
     <div className="space-y-4">
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-base font-medium">
-            Weight Tracking
-          </CardTitle>
           <Button
             variant="ghost"
             size="sm"

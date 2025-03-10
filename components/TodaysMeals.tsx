@@ -1,5 +1,6 @@
 "use client";
 
+import eventEmitter from "@/lib/events";
 import type { Meal as BaseMeal } from "@/lib/firebase/models/meal";
 import { ChevronDown, ChevronUp, Edit, Trash } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -144,6 +145,7 @@ const TodaysMeals = ({
       }
 
       toast.success("Meal deleted successfully");
+      eventEmitter.emit("meal-updated");
     } catch (error) {
       console.error("Error deleting meal:", error);
       toast.error(

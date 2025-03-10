@@ -1,6 +1,6 @@
-import { Expand, Minimize2 } from "lucide-react";
+import { Expand, Minimize2, RefreshCw } from "lucide-react";
 import { useSession } from "next-auth/react";
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Bar,
   CartesianGrid,
@@ -45,23 +45,31 @@ interface EnhancedCombinedChartProps {
   showWeightOnly?: boolean;
   showCaloriesOnly?: boolean;
   height?: number | string;
+  onRefresh?: () => void;
+  autoRefreshInterval?: number; // Time in ms for auto-refresh
 }
 
-const EnhancedCombinedWeightCalorieChart: React.FC<
-  EnhancedCombinedChartProps
-> = ({
+const CombinedWeightCalorieChart: React.FC<EnhancedCombinedChartProps> = ({
   dateRange = "month",
   className = "",
   showWeightOnly = false,
   showCaloriesOnly = false,
   height = 400,
+  onRefresh,
+  autoRefreshInterval = 30000, // Default to 30 seconds
 }) => {
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
   const [targets, setTargets] = useState<TargetValues>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isFullScreen, setIsFullScreen] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const { data: session } = useSession();
+
+  // Refs for auto-refresh mechanism
+  const autoRefreshTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastUpdatedRef = useRef<Date>(new Date());
+  const isMountedRef = useRef<boolean>(true);
 
   // Detect device orientation change
   useEffect(() => {
@@ -109,29 +117,43 @@ const EnhancedCombinedWeightCalorieChart: React.FC<
     };
   }, [isFullScreen]);
 
-  // Toggle fullscreen mode manually
-  const toggleFullScreen = () => {
-    setIsFullScreen(!isFullScreen);
-  };
-
-  // Format date for display
-  const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    return new Intl.DateTimeFormat("en-US", {
-      month: "short",
-      day: "numeric",
-    }).format(date);
-  };
-
-  // Load chart data
+  // Cleanup on unmount
   useEffect(() => {
-    const fetchChartData = async () => {
-      setIsLoading(true);
+    isMountedRef.current = true;
+
+    return () => {
+      isMountedRef.current = false;
+      if (autoRefreshTimerRef.current) {
+        clearTimeout(autoRefreshTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Fetch chart data function that can be called for initial load and refreshes
+  const fetchChartData = useCallback(
+    async (showLoadingState = true) => {
+      if (!session?.user?.id) return;
+
+      if (showLoadingState) {
+        setIsRefreshing(true);
+      }
+
       setError(null);
 
       try {
         console.log(`Fetching chart data for range: ${dateRange}`);
-        const response = await fetch(`/api/chart-data?range=${dateRange}`);
+        // Add a cache-busting parameter to prevent browsers from caching the API response
+        const cacheBuster = new Date().getTime();
+        const response = await fetch(
+          `/api/chart-data?range=${dateRange}&_=${cacheBuster}`,
+          {
+            headers: {
+              "Cache-Control": "no-cache, no-store, must-revalidate",
+              Pragma: "no-cache",
+              Expires: "0",
+            },
+          }
+        );
 
         if (!response.ok) {
           throw new Error(`Failed to fetch chart data: ${response.statusText}`);
@@ -147,6 +169,9 @@ const EnhancedCombinedWeightCalorieChart: React.FC<
           // If no data, use fallback to show at least something
           setChartData(generateFallbackData());
         }
+
+        // Update last updated timestamp
+        lastUpdatedRef.current = new Date();
       } catch (err) {
         console.error("Error loading chart data:", err);
         setError(
@@ -155,20 +180,92 @@ const EnhancedCombinedWeightCalorieChart: React.FC<
         // Use fallback data on error
         setChartData(generateFallbackData());
       } finally {
+        setIsRefreshing(false);
         setIsLoading(false);
-      }
-    };
 
-    // Only fetch if authenticated
+        // Schedule next auto-refresh if component is still mounted
+        if (isMountedRef.current && autoRefreshInterval > 0) {
+          if (autoRefreshTimerRef.current) {
+            clearTimeout(autoRefreshTimerRef.current);
+          }
+          autoRefreshTimerRef.current = setTimeout(() => {
+            if (isMountedRef.current) {
+              fetchChartData(false); // Don't show loading state for auto-refreshes
+            }
+          }, autoRefreshInterval);
+        }
+      }
+    },
+    [dateRange, session?.user?.id, autoRefreshInterval]
+  );
+
+  // Manual refresh handler
+  const handleRefresh = useCallback(() => {
+    if (autoRefreshTimerRef.current) {
+      clearTimeout(autoRefreshTimerRef.current);
+      autoRefreshTimerRef.current = null;
+    }
+
+    fetchChartData(true);
+
+    if (onRefresh) {
+      onRefresh();
+    }
+  }, [fetchChartData, onRefresh]);
+
+  // Toggle fullscreen mode manually
+  const toggleFullScreen = () => {
+    setIsFullScreen(!isFullScreen);
+  };
+
+  // Format date for display
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    return new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      day: "numeric",
+    }).format(date);
+  };
+
+  // Load chart data when dateRange changes or on mount
+  useEffect(() => {
     if (session?.user?.id) {
-      fetchChartData();
+      fetchChartData(true);
     } else {
       // Show demo data if not authenticated
       setChartData(generateFallbackData());
       setIsLoading(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateRange, session?.user?.id]);
+
+    // Clear any existing auto-refresh timer when dateRange changes
+    return () => {
+      if (autoRefreshTimerRef.current) {
+        clearTimeout(autoRefreshTimerRef.current);
+        autoRefreshTimerRef.current = null;
+      }
+    };
+  }, [dateRange, session?.user?.id, fetchChartData]);
+
+  // Listen for visibility changes - refresh when tab becomes visible again
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        // Check if last update was more than 10 seconds ago
+        const timeSinceLastUpdate =
+          new Date().getTime() - lastUpdatedRef.current.getTime();
+        if (timeSinceLastUpdate > 10000) {
+          // 10 seconds
+          fetchChartData(false);
+        }
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [fetchChartData]);
 
   // Generate fallback data to display a chart even when no real data exists
   const generateFallbackData = (): ChartDataPoint[] => {
@@ -339,6 +436,15 @@ const EnhancedCombinedWeightCalorieChart: React.FC<
         <div className="text-center p-6">
           <p className="text-red-500 mb-2">Error loading chart data</p>
           <p className="text-sm text-gray-500">{error}</p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRefresh}
+            className="mt-4"
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Retry
+          </Button>
         </div>
       </div>
     );
@@ -357,6 +463,15 @@ const EnhancedCombinedWeightCalorieChart: React.FC<
           <p className="text-sm text-gray-400 dark:text-gray-500">
             Start logging meals and weight to see your progress
           </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRefresh}
+            className="mt-4"
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh
+          </Button>
         </div>
       </div>
     );
@@ -372,15 +487,30 @@ const EnhancedCombinedWeightCalorieChart: React.FC<
         <div className="fixed inset-0 z-50 bg-white dark:bg-gray-900 p-4 flex flex-col">
           <div className="flex justify-between items-center mb-2">
             <h3 className="font-bold">Weight and Calories Progress</h3>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={toggleFullScreen}
-              className="self-end"
-            >
-              <Minimize2 className="h-4 w-4 mr-2" />
-              Exit Fullscreen
-            </Button>
+            <div className="flex gap-2">
+              {/* <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRefresh}
+                disabled={isRefreshing}
+              >
+                <RefreshCw
+                  className={`h-4 w-4 mr-2 ${
+                    isRefreshing ? "animate-spin" : ""
+                  }`}
+                />
+                {isRefreshing ? "Refreshing..." : "Refresh"}
+              </Button> */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={toggleFullScreen}
+                className="self-end"
+              >
+                <Minimize2 className="h-4 w-4 mr-2" />
+                Exit Fullscreen
+              </Button>
+            </div>
           </div>
           <div className="flex-1">{children}</div>
         </div>
@@ -389,15 +519,31 @@ const EnhancedCombinedWeightCalorieChart: React.FC<
         <Card className={className}>
           <CardHeader className="pb-2 flex flex-row items-center justify-between">
             <CardTitle className="text-base">Progress Chart</CardTitle>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={toggleFullScreen}
-              className="h-8 px-2 text-xs"
-            >
-              <Expand className="h-3.5 w-3.5 mr-1" />
-              Fullscreen
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRefresh}
+                disabled={isRefreshing}
+                className="h-8 px-2 text-xs"
+              >
+                <RefreshCw
+                  className={`h-3.5 w-3.5 mr-1 ${
+                    isRefreshing ? "animate-spin" : ""
+                  }`}
+                />
+                {isRefreshing ? "..." : "Refresh"}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={toggleFullScreen}
+                className="h-8 px-2 text-xs"
+              >
+                <Expand className="h-3.5 w-3.5 mr-1" />
+                Fullscreen
+              </Button>
+            </div>
           </CardHeader>
           <CardContent
             className="h-full" // Use a static class
@@ -528,4 +674,4 @@ const EnhancedCombinedWeightCalorieChart: React.FC<
   );
 };
 
-export default EnhancedCombinedWeightCalorieChart;
+export default CombinedWeightCalorieChart;
