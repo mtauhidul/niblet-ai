@@ -520,7 +520,7 @@ const CombinedWeightCalorieChart: React.FC<EnhancedCombinedChartProps> = ({
           <CardHeader className="pb-2 flex flex-row items-center justify-between">
             <CardTitle className="text-base">Progress Chart</CardTitle>
             <div className="flex items-center gap-2">
-              <Button
+              {/* <Button
                 variant="outline"
                 size="sm"
                 onClick={handleRefresh}
@@ -533,15 +533,14 @@ const CombinedWeightCalorieChart: React.FC<EnhancedCombinedChartProps> = ({
                   }`}
                 />
                 {isRefreshing ? "..." : "Refresh"}
-              </Button>
+              </Button> */}
               <Button
                 variant="outline"
                 size="sm"
                 onClick={toggleFullScreen}
                 className="h-8 px-2 text-xs"
               >
-                <Expand className="h-3.5 w-3.5 mr-1" />
-                Fullscreen
+                <Expand className="h-3.5 w-3.5" />
               </Button>
             </div>
           </CardHeader>
