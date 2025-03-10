@@ -8,10 +8,7 @@ import { getToken } from "next-auth/jwt";
 import { NextRequest, NextResponse } from "next/server";
 
 // PATCH endpoint to update a meal
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function PATCH(request: NextRequest, context: any) {
   try {
     // Get session token for authentication
     const token = await getToken({ req: request });
@@ -20,7 +17,7 @@ export async function PATCH(
       return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     }
 
-    const mealId = params.id;
+    const mealId = context.params.id;
     if (!mealId) {
       return NextResponse.json(
         { message: "Meal ID is required" },
