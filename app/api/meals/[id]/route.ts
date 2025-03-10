@@ -3,10 +3,8 @@ import { deleteMeal, getMealById } from "@/lib/firebase/models/meal";
 import { getToken } from "next-auth/jwt";
 import { NextRequest, NextResponse } from "next/server";
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+// Without type annotations on the second parameter
+export async function DELETE(request: NextRequest, context: any) {
   try {
     // Get session token for authentication
     const token = await getToken({ req: request });
@@ -15,7 +13,7 @@ export async function DELETE(
       return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     }
 
-    const mealId = params.id;
+    const mealId = context.params.id;
     if (!mealId) {
       return NextResponse.json(
         { message: "Meal ID is required" },
@@ -49,9 +47,10 @@ export async function DELETE(
     // Prevent caching
     response.headers.set(
       "Cache-Control",
-      "no-store, no-cache, must-revalidate"
+      "no-store, no-cache, must-revalidate, proxy-revalidate"
     );
     response.headers.set("Pragma", "no-cache");
+    response.headers.set("Expires", "0");
 
     return response;
   } catch (error) {
