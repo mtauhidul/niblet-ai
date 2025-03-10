@@ -1,4 +1,6 @@
 // components/CombinedWeightCalorieChart.tsx
+"use client";
+
 import { Expand, Minimize2 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";

@@ -1,4 +1,4 @@
-// components/Dashboard.tsx
+// Modified Dashboard.tsx to integrate the WeightLogComponent
 "use client";
 
 import { useChatManager } from "@/hooks/useChatManager";
@@ -31,6 +31,7 @@ import { Button } from "./ui/button";
 import { Skeleton } from "./ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 import VoiceChat from "./VoiceChat";
+import WeightLogComponent from "./WeightLogComponent"; // Import the new component
 
 interface CollapsibleSectionProps {
   title: string;
@@ -284,12 +285,13 @@ const Dashboard = ({
   }, [handleMealLogged, propOnMealLogged]);
 
   const handleWeightLogged = useCallback(() => {
-    // Just show a toast or reload user profile
+    // Just show a toast and reload user profile
     toast.success("Weight updated successfully!");
     if (session?.user?.id) {
       loadUserProfile();
     }
   }, [loadUserProfile, session?.user?.id]);
+
   const [isVoiceChatOpen, setIsVoiceChatOpen] = useState(false);
 
   // Replace the existing handlePhoneCall function with this:
@@ -403,6 +405,15 @@ const Dashboard = ({
             meals={todaysMeals}
             onMealDeleted={handleMealLogged}
             targetCalories={targetCalories}
+          />
+        </CollapsibleSection>
+
+        {/* Add Weight Logging Section */}
+        <CollapsibleSection title="Weight Tracking" initiallyExpanded={true}>
+          <WeightLogComponent
+            onWeightLogged={handleWeightLogged}
+            startWeight={userProfile?.currentWeight || undefined}
+            targetWeight={userProfile?.targetWeight || undefined}
           />
         </CollapsibleSection>
 

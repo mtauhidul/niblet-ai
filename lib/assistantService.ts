@@ -225,7 +225,8 @@ FOR ALL OTHER TOPICS BESIDES FOOD/MEALS, you can respond normally.
             type: "function",
             function: {
               name: "log_weight",
-              description: "Log the user's weight",
+              description:
+                "Log the user's weight. AUTOMATICALLY call this when the user mentions their weight.",
               parameters: {
                 type: "object",
                 properties: {
@@ -238,6 +239,10 @@ FOR ALL OTHER TOPICS BESIDES FOOD/MEALS, you can respond normally.
                     description:
                       "The date of the weight measurement (YYYY-MM-DD format)",
                     format: "date",
+                  },
+                  note: {
+                    type: "string",
+                    description: "Optional note about the weight entry",
                   },
                 },
                 required: ["weight"],
@@ -328,6 +333,147 @@ FOR ALL OTHER TOPICS BESIDES FOOD/MEALS, you can respond normally.
               },
             },
           },
+          {
+            type: "function",
+            function: {
+              name: "update_meal",
+              description: "Update an existing meal with new information",
+              parameters: {
+                type: "object",
+                properties: {
+                  meal_id: {
+                    type: "string",
+                    description: "ID of the meal to update",
+                  },
+                  meal_name: {
+                    type: "string",
+                    description: "Updated name of the meal",
+                  },
+                  meal_type: {
+                    type: "string",
+                    description:
+                      "Type of meal (breakfast, lunch, dinner, snack)",
+                    enum: [
+                      "Breakfast",
+                      "Morning Snack",
+                      "Lunch",
+                      "Afternoon Snack",
+                      "Dinner",
+                      "Evening Snack",
+                      "Other",
+                    ],
+                  },
+                  calories: {
+                    type: "number",
+                    description: "Updated estimated calories",
+                  },
+                  protein: {
+                    type: "number",
+                    description: "Updated protein in grams",
+                  },
+                  carbs: {
+                    type: "number",
+                    description: "Updated carbohydrates in grams",
+                  },
+                  fat: {
+                    type: "number",
+                    description: "Updated fat in grams",
+                  },
+                  date: {
+                    type: "string",
+                    description:
+                      "Updated date for the meal (YYYY-MM-DD format)",
+                    format: "date",
+                  },
+                  items: {
+                    type: "array",
+                    description: "Updated list of food items in the meal",
+                    items: {
+                      type: "string",
+                    },
+                  },
+                },
+                required: ["meal_id"],
+              },
+            },
+          },
+          {
+            type: "function",
+            function: {
+              name: "update_weight",
+              description: "Update an existing weight log entry",
+              parameters: {
+                type: "object",
+                properties: {
+                  weight_log_id: {
+                    type: "string",
+                    description: "ID of the weight log to update",
+                  },
+                  weight: {
+                    type: "number",
+                    description: "Updated weight value in pounds",
+                  },
+                  date: {
+                    type: "string",
+                    description:
+                      "Updated date for the weight log (YYYY-MM-DD format)",
+                    format: "date",
+                  },
+                  note: {
+                    type: "string",
+                    description: "Updated note about the weight entry",
+                  },
+                },
+                required: ["weight_log_id"],
+              },
+            },
+          },
+          {
+            type: "function",
+            function: {
+              name: "get_meals_for_date",
+              description: "Get all meals for a specific date",
+              parameters: {
+                type: "object",
+                properties: {
+                  date: {
+                    type: "string",
+                    description:
+                      "The date to get meals for (YYYY-MM-DD format)",
+                    format: "date",
+                  },
+                },
+                required: ["date"],
+              },
+            },
+          },
+          {
+            type: "function",
+            function: {
+              name: "get_weight_logs",
+              description:
+                "Get weight logs for a date range or the most recent logs",
+              parameters: {
+                type: "object",
+                properties: {
+                  start_date: {
+                    type: "string",
+                    description: "Start date for the range (YYYY-MM-DD format)",
+                    format: "date",
+                  },
+                  end_date: {
+                    type: "string",
+                    description: "End date for the range (YYYY-MM-DD format)",
+                    format: "date",
+                  },
+                  limit: {
+                    type: "integer",
+                    description: "Maximum number of logs to return",
+                  },
+                },
+              },
+            },
+          },
         ],
       })
     );
@@ -345,6 +491,7 @@ FOR ALL OTHER TOPICS BESIDES FOOD/MEALS, you can respond normally.
     return null;
   }
 };
+
 // Create a thread for the user with retry
 export const createThread = async (): Promise<string | null> => {
   const openai = getOpenAIClient();
