@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { Meal } from "@/lib/firebase/models/meal";
+import { format, subDays } from "date-fns";
 import { useEffect, useState } from "react";
 
 interface EditMealModalProps {
@@ -44,11 +45,15 @@ const EditMealModal: React.FC<EditMealModalProps> = ({
     carbs: "",
     fat: "",
     items: "", // Comma-separated items
+    date: format(new Date(), "yyyy-MM-dd"),
   });
 
   // When meal prop changes, update the form data
   useEffect(() => {
     if (meal) {
+      const mealDate =
+        meal.date instanceof Date ? meal.date : (meal.date as any).toDate();
+
       setMealData({
         name: meal.name || "",
         mealType: meal.mealType || "Other",
@@ -57,6 +62,7 @@ const EditMealModal: React.FC<EditMealModalProps> = ({
         carbs: meal.carbs?.toString() || "",
         fat: meal.fat?.toString() || "",
         items: meal.items ? meal.items.join(", ") : "",
+        date: format(mealDate, "yyyy-MM-dd"),
       });
     }
   }, [meal]);
@@ -72,6 +78,9 @@ const EditMealModal: React.FC<EditMealModalProps> = ({
 
   const resetForm = () => {
     if (meal) {
+      const mealDate =
+        meal.date instanceof Date ? meal.date : (meal.date as any).toDate();
+
       setMealData({
         name: meal.name || "",
         mealType: meal.mealType || "Other",
@@ -80,6 +89,7 @@ const EditMealModal: React.FC<EditMealModalProps> = ({
         carbs: meal.carbs?.toString() || "",
         fat: meal.fat?.toString() || "",
         items: meal.items ? meal.items.join(", ") : "",
+        date: format(mealDate, "yyyy-MM-dd"),
       });
     }
     setError(null);
@@ -109,6 +119,11 @@ const EditMealModal: React.FC<EditMealModalProps> = ({
 
     if (mealData.fat.trim() && isNaN(parseFloat(mealData.fat))) {
       setError("Fat must be a valid number");
+      return false;
+    }
+
+    if (!mealData.date) {
+      setError("Date is required");
       return false;
     }
 
@@ -147,6 +162,7 @@ const EditMealModal: React.FC<EditMealModalProps> = ({
         carbs: mealData.carbs ? parseFloat(mealData.carbs) : null,
         fat: mealData.fat ? parseFloat(mealData.fat) : null,
         items: items,
+        date: new Date(mealData.date).toISOString(), // Use the date from the form
       };
 
       console.log("Updating meal data:", payload);
@@ -179,6 +195,24 @@ const EditMealModal: React.FC<EditMealModalProps> = ({
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  // Generate date options for the last 7 days
+  const getDateOptions = () => {
+    const options = [];
+    const today = new Date();
+
+    for (let i = 0; i < 7; i++) {
+      const date = subDays(today, i);
+      const dateStr = format(date, "yyyy-MM-dd");
+      const displayDate = format(date, "EEE, MMM d");
+      options.push({
+        value: dateStr,
+        label: i === 0 ? `Today (${displayDate})` : displayDate,
+      });
+    }
+
+    return options;
   };
 
   // Handle modal close
@@ -240,6 +274,27 @@ const EditMealModal: React.FC<EditMealModalProps> = ({
                 <SelectItem value="Dinner">Dinner</SelectItem>
                 <SelectItem value="Evening Snack">Evening Snack</SelectItem>
                 <SelectItem value="Other">Other</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="grid grid-cols-4 items-center gap-4">
+            <Label htmlFor="date" className="text-right">
+              Date<span className="text-red-500">*</span>
+            </Label>
+            <Select
+              value={mealData.date}
+              onValueChange={(value) => handleSelectChange("date", value)}
+            >
+              <SelectTrigger id="date" className="col-span-3">
+                <SelectValue placeholder="Select date" />
+              </SelectTrigger>
+              <SelectContent>
+                {getDateOptions().map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>

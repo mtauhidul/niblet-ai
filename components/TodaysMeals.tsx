@@ -1,7 +1,7 @@
 "use client";
 
 import type { Meal as BaseMeal } from "@/lib/firebase/models/meal";
-import { ChevronDown, ChevronUp, Trash } from "lucide-react";
+import { ChevronDown, ChevronUp, Edit, Trash } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import EditMealModal from "./EditMealModal";
@@ -304,7 +304,7 @@ const TodaysMeals = ({
                           <div className="col-span-1 flex justify-end">
                             {item.id && (
                               <>
-                                {/* <Button
+                                <Button
                                   size="sm"
                                   variant="ghost"
                                   className="h-6 w-6 p-0"
@@ -314,7 +314,7 @@ const TodaysMeals = ({
                                   }}
                                 >
                                   <Edit className="h-3 w-3" />
-                                </Button> */}
+                                </Button>
                                 <Button
                                   size="sm"
                                   variant="ghost"
@@ -340,7 +340,7 @@ const TodaysMeals = ({
                             <div className="flex items-center">
                               {item.id && (
                                 <>
-                                  {/* <Button
+                                  <Button
                                     size="sm"
                                     variant="ghost"
                                     className="h-6 w-6 p-0"
@@ -350,7 +350,7 @@ const TodaysMeals = ({
                                     }}
                                   >
                                     <Edit className="h-3 w-3" />
-                                  </Button> */}
+                                  </Button>
                                   <Button
                                     size="sm"
                                     variant="ghost"

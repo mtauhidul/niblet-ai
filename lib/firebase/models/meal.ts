@@ -1,4 +1,4 @@
-// lib/firebase/models/meal.ts - Fixed with proper data fetching to avoid index issues
+// lib/firebase/models/meal.ts
 import {
   addDoc,
   collection,
@@ -70,8 +70,7 @@ export async function createMeal(mealData: Omit<Meal, "id">): Promise<Meal> {
 }
 
 /**
- * Get meals by user and optional date - FIXED to avoid complex queries
- * This simplifies the query to avoid requiring complex indexes
+ * Get meals by user and optional date - Simplified to avoid complex queries
  */
 export async function getMealsByUserAndDate(
   userId: string,
@@ -80,7 +79,7 @@ export async function getMealsByUserAndDate(
   try {
     const mealsCollectionRef = collection(db, "meals");
 
-    // IMPORTANT FIX: Use a simple query that doesn't require complex indexes
+    // IMPORTANT: Use a simple query that doesn't require complex indexes
     // Just query by userId and handle date filtering in memory
     const q = query(mealsCollectionRef, where("userId", "==", userId));
 
@@ -171,7 +170,7 @@ export async function updateMeal(
   try {
     const mealRef = doc(db, "meals", id);
 
-    // First check if meal exists and user has permission
+    // First check if meal exists
     const mealSnap = await getDoc(mealRef);
     if (!mealSnap.exists()) {
       throw new Error("Meal not found");
@@ -179,6 +178,17 @@ export async function updateMeal(
 
     // Don't allow changing userId to prevent unauthorized access
     const { userId, ...updateData } = mealData;
+
+    // Format the date properly if provided
+    if (updateData.date) {
+      // If it's already a Date object, keep it, otherwise convert
+      if (
+        !(updateData.date instanceof Date) &&
+        !(updateData.date instanceof Timestamp)
+      ) {
+        updateData.date = new Date(updateData.date);
+      }
+    }
 
     const updatedMeal = {
       ...updateData,
