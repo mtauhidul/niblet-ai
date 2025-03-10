@@ -11,7 +11,9 @@ import CombinedWeightCalorieChart from "./CombinedWeightCalorieChart";
 
 const ChartsScreen = () => {
   const [isFullScreen, setIsFullScreen] = useState(false);
-  const [dateRange, setDateRange] = useState("month");
+  const [dateRange, setDateRange] = useState<
+    "week" | "month" | "3months" | "year"
+  >("month");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const chartRef = useRef<HTMLDivElement>(null);
 
@@ -107,7 +109,9 @@ const ChartsScreen = () => {
               <div>
                 <Tabs
                   value={dateRange}
-                  onValueChange={setDateRange}
+                  onValueChange={(value: string) =>
+                    setDateRange(value as "week" | "month" | "3months" | "year")
+                  }
                   className="mb-1"
                 >
                   <TabsList>
