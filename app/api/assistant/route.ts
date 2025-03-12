@@ -43,7 +43,7 @@ async function getOrCreateAssistant(
     const assistant = await openai.beta.assistants.create({
       name: personalities[personality].name,
       instructions: personalities[personality].instructions,
-      model: "chatgpt-4o-mini",
+      model: "gpt-4o-mini",
       tools: [
         {
           type: "function",

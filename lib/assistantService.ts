@@ -300,7 +300,7 @@ FOR ALL OTHER TOPICS BESIDES FOOD/MEALS, you can respond normally.
         name: personalities[personality].name,
         // Override normal personality instructions completely
         instructions: formattingInstructions,
-        model: "gpt-4-turbo",
+        model: "gpt-4o-mini",
         tools: [
           {
             type: "function",
