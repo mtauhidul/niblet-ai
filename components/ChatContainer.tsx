@@ -313,6 +313,13 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
           const newAssistantId = await getOrCreateAssistant(aiPersonality);
           if (!newAssistantId) throw new Error("Failed to create assistant");
 
+          // If creating a new thread
+          // When sending the initial system message to the assistant:
+          await addMessageToThread(
+            newThreadId,
+            "System: Initialize with this message: What's your weight today? And what have you eaten so far that I can log for you?"
+          );
+
           setThreadId(newThreadId);
           setAssistantId(newAssistantId);
           onThreadInitialized?.(newThreadId, newAssistantId);
@@ -345,11 +352,15 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
             updateSessionData(newThreadId);
             sessionRestored.current = true;
           } else {
+            // In ChatContainer.tsx, look for where the initial message is created
+            // Around lines where fallbackMsg is defined:
+
             const fallbackMsg: Message[] = [
               {
                 id: "welcome",
                 role: "assistant",
-                content: "Hi, I'm Niblet! How can I help you today?",
+                content:
+                  "What's your weight today? And what have you eaten so far that I can log for you?",
                 timestamp: new Date(),
               },
             ];
