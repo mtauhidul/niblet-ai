@@ -1,4 +1,4 @@
-// components/ChatContainer.tsx - Enhanced with better session persistence
+// components/ChatContainer.tsx - Enhanced with better session persistence and bottom-aligned chat
 "use client";
 
 import { Button } from "@/components/ui/button";
@@ -91,6 +91,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const messageEndRef = useRef<HTMLDivElement | null>(null);
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const processInProgress = useRef<boolean>(false);
   const initializationAttempted = useRef<boolean>(false);
   const sessionRestored = useRef<boolean>(preservingSession);
@@ -291,10 +292,25 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
     preservingSession,
   ]);
 
-  // Always scroll to bottom after new messages
+  // Scroll to bottom after new messages with a slight delay to ensure DOM is updated
   useEffect(() => {
-    messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const scrollToBottom = () => {
+      if (messageEndRef.current) {
+        messageEndRef.current.scrollIntoView({ behavior: "smooth" });
+      }
+    };
+
+    const timeoutId = setTimeout(scrollToBottom, 100);
+    return () => clearTimeout(timeoutId);
   }, [messages, isTyping]);
+
+  // Initialize scroll position to the bottom when the component first mounts
+  useEffect(() => {
+    if (messagesContainerRef.current && isInitialized) {
+      messagesContainerRef.current.scrollTop =
+        messagesContainerRef.current.scrollHeight;
+    }
+  }, [isInitialized]);
 
   // When component unmounts or threadId changes, save learning data
   useEffect(() => {
@@ -660,110 +676,111 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
 
       {/* MESSAGES - Fixed height container */}
       <div
-        className="flex-1 overflow-y-auto p-4 space-y-4"
-        style={{ maxHeight: "calc(100vh - 170px)" }}
+        ref={messagesContainerRef}
+        className="flex-1 overflow-y-auto p-4"
+        style={{
+          maxHeight: "calc(100vh - 170px)",
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "flex-end",
+        }}
       >
-        {error && (
-          <div className="mx-auto bg-red-100 dark:bg-red-900 p-3 rounded-lg text-center">
-            {error}
-          </div>
-        )}
-        {uploadError && (
-          <div className="mx-auto bg-red-100 dark:bg-red-900 p-3 rounded-lg text-center">
-            {uploadError}
-          </div>
-        )}
+        <div className="space-y-4">
+          {error && (
+            <div className="mx-auto bg-red-100 dark:bg-red-900 p-3 rounded-lg text-center">
+              {error}
+            </div>
+          )}
+          {uploadError && (
+            <div className="mx-auto bg-red-100 dark:bg-red-900 p-3 rounded-lg text-center">
+              {uploadError}
+            </div>
+          )}
 
-        {/* Indicator that shows this is a preserved session */}
-        {preservingSession && sessionRestored.current && (
-          <div className="mx-auto bg-blue-100 dark:bg-blue-900/30 p-2 rounded-lg text-center text-xs text-blue-800 dark:text-blue-200 animate-fade-in">
-            Continuing your previous conversation
-          </div>
-        )}
+          {messages
+            .filter((msg) => {
+              // Filter out system initialization messages
+              return !(
+                (msg.role === "user" || msg.role === "system") &&
+                typeof msg.content === "string" &&
+                msg.content.toLowerCase().includes("system: initialize")
+              );
+            })
+            .map((msg) => {
+              const isImageOnly = msg.imageUrl && !msg.content;
+              if (isImageOnly) {
+                return (
+                  <div
+                    key={msg.id}
+                    className={`flex ${
+                      msg.role === "user" ? "justify-end" : "justify-start"
+                    }`}
+                  >
+                    <div
+                      className={`p-1 rounded-lg overflow-hidden ${
+                        msg.role === "user"
+                          ? "bg-blue-500"
+                          : "bg-gray-200 dark:bg-gray-700"
+                      }`}
+                    >
+                      <Image
+                        src={msg.imageUrl!}
+                        alt="User upload"
+                        width={300}
+                        height={200}
+                        className="rounded-md"
+                        style={{ objectFit: "contain" }}
+                      />
+                    </div>
+                  </div>
+                );
+              }
 
-        {messages
-          .filter((msg) => {
-            // Filter out system initialization messages
-            return !(
-              (msg.role === "user" || msg.role === "system") &&
-              typeof msg.content === "string" &&
-              msg.content.toLowerCase().includes("system: initialize")
-            );
-          })
-          .map((msg) => {
-            const isImageOnly = msg.imageUrl && !msg.content;
-            if (isImageOnly) {
+              // Skip any system messages completely
+              if (msg.role === "system") {
+                return null;
+              }
+
               return (
                 <div
                   key={msg.id}
-                  className={`flex ${
-                    msg.role === "user" ? "justify-end" : "justify-start"
-                  }`}
+                  className={cn(
+                    "rounded-lg p-3 max-w-[85%]",
+                    msg.role === "user"
+                      ? "ml-auto bg-blue-500 text-white"
+                      : msg.role === "assistant"
+                      ? "mr-auto bg-gray-200 dark:bg-gray-700 dark:text-white"
+                      : "mx-auto bg-yellow-100 dark:bg-yellow-900 text-center"
+                  )}
                 >
-                  <div
-                    className={`p-1 rounded-lg overflow-hidden ${
-                      msg.role === "user"
-                        ? "bg-blue-500"
-                        : "bg-gray-200 dark:bg-gray-700"
-                    }`}
-                  >
-                    <Image
-                      src={msg.imageUrl!}
-                      alt="User upload"
-                      width={300}
-                      height={200}
-                      className="rounded-md"
-                      style={{ objectFit: "contain" }}
-                    />
-                  </div>
+                  {msg.role === "assistant" ? (
+                    <div className="prose dark:prose-invert prose-sm max-w-none">
+                      <ReactMarkdown>{msg.content}</ReactMarkdown>
+                    </div>
+                  ) : (
+                    <div>{msg.content}</div>
+                  )}
                 </div>
               );
-            }
+            })}
 
-            // Skip any system messages completely
-            if (msg.role === "system") {
-              return null;
-            }
-
-            return (
+          {/* "Assistant is typing..." dots */}
+          {isTyping && (
+            <div className="flex space-x-2 mr-auto bg-gray-200 dark:bg-gray-700 rounded-lg p-3">
+              <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"></div>
               <div
-                key={msg.id}
-                className={cn(
-                  "rounded-lg p-3 max-w-[85%]",
-                  msg.role === "user"
-                    ? "ml-auto bg-blue-500 text-white"
-                    : msg.role === "assistant"
-                    ? "mr-auto bg-gray-200 dark:bg-gray-700 dark:text-white"
-                    : "mx-auto bg-yellow-100 dark:bg-yellow-900 text-center"
-                )}
-              >
-                {msg.role === "assistant" ? (
-                  <div className="prose dark:prose-invert prose-sm max-w-none">
-                    <ReactMarkdown>{msg.content}</ReactMarkdown>
-                  </div>
-                ) : (
-                  <div>{msg.content}</div>
-                )}
-              </div>
-            );
-          })}
+                className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"
+                style={{ animationDelay: "0.2s" }}
+              ></div>
+              <div
+                className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"
+                style={{ animationDelay: "0.4s" }}
+              ></div>
+            </div>
+          )}
 
-        {/* "Assistant is typing..." dots */}
-        {isTyping && (
-          <div className="flex space-x-2 mr-auto bg-gray-200 dark:bg-gray-700 rounded-lg p-3">
-            <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"></div>
-            <div
-              className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"
-              style={{ animationDelay: "0.2s" }}
-            ></div>
-            <div
-              className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"
-              style={{ animationDelay: "0.4s" }}
-            ></div>
-          </div>
-        )}
-
-        <div ref={messageEndRef} />
+          <div ref={messageEndRef} />
+        </div>
       </div>
 
       {/* INPUT */}
