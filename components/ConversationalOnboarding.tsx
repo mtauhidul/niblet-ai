@@ -644,7 +644,7 @@ const ConversationalOnboarding = () => {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-200 max-w-3xl mx-auto rounded-lg shadow-lg">
       {/* Header */}
       <header className="p-4 border-b dark:border-gray-800 flex justify-center items-center">
         <div className="text-2xl font-bold">

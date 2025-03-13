@@ -240,6 +240,18 @@ export const getOrCreateAssistant = async (
     // IMPORTANT: Force creation of a new assistant every time to ensure new instructions are used
     // Remove the localStorage check to always create a new assistant
 
+    // Define initial message instructions to ask for weight and first meal
+    const initialMessageInstructions = `
+When starting a conversation, ALWAYS begin with a short, friendly greeting followed by asking for the user's weight and first meal of the day. For example:
+
+"Good morning! 👋 What's your weight today, and what did you have for breakfast?"
+"Hi there! 😊 Let's start tracking - what's your weight today, and what was your first meal?"
+"Welcome back! Quick check-in: what's your current weight, and have you had your first meal yet?"
+
+Keep your initial message under 3 lines, be direct but friendly. Don't explain the app or give a long introduction.
+
+After the user responds, follow the meal formatting instructions below.`;
+
     // Ultra-strict formatting instructions with minimal room for interpretation
     const formattingInstructions = `
 ULTRA-STRICT MEAL RESPONSE FORMAT - FOLLOW EXACTLY WITH NO DEVIATIONS:
@@ -290,6 +302,8 @@ The greens are pretty light, likely under 50 calories, mainly providing fiber an
 
 In total, this meal could be approximately 600 calories. It's a balanced choice with protein, veggies, and a bit of indulgent breading.
 I'll go ahead and log this meal as your lunch. Let me know if you need anything adjusted or have more to add! 😊
+
+${initialMessageInstructions}
 
 FOR ALL OTHER TOPICS BESIDES FOOD/MEALS, you can respond normally.
 `;
@@ -823,7 +837,8 @@ export const runAssistant = async (
         console.log("No messages in thread, adding system message for welcome");
         await openai.beta.threads.messages.create(threadId, {
           role: "user",
-          content: "System: Initialize conversation with a friendly welcome.",
+          content:
+            "System: Initialize conversation with a greeting, ask for today's weight and what I had for my first meal.",
         });
       }
     } catch (error) {
