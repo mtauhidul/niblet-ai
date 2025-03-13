@@ -230,3 +230,48 @@
 .animate-ripple {
   animation: ripple 1.5s infinite;
 }
+
+/* Add these styles to your globals.css file for better mobile experience */
+
+/* Adjust chat container height for mobile */
+@media (max-width: 640px) {
+  .chat-container {
+    max-height: calc(100vh - 140px);
+  }
+
+  /* Add more space between messages on mobile */
+  .message-spacing > div {
+    margin-bottom: 0.75rem;
+  }
+
+  /* Increase tap target sizes on mobile */
+  .mobile-friendly-button {
+    min-height: 2.5rem;
+    min-width: 2.5rem;
+  }
+
+  /* Adjust font size for better readability on small screens */
+  .mobile-text-input {
+    font-size: 16px; /* Prevents iOS zoom on focus */
+  }
+
+  /* Add proper padding to prevent content from being hidden by keyboard */
+  .chat-app-wrapper {
+    padding-bottom: env(safe-area-inset-bottom, 1rem);
+  }
+
+  /* Make message bubbles more compact on mobile */
+  .message-bubble {
+    max-width: 90%;
+    padding: 0.625rem;
+  }
+}
+
+/* Optimize for notched devices */
+@supports (padding: max(0px)) {
+  .safe-area-input {
+    padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+    padding-left: max(0.5rem, env(safe-area-inset-left));
+    padding-right: max(0.5rem, env(safe-area-inset-right));
+  }
+}

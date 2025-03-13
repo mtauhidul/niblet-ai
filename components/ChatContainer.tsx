@@ -1,4 +1,4 @@
-// components/ChatContainer.tsx - Enhanced with better session persistence and bottom-aligned chat
+// components/ChatContainer.tsx - Fixed version with scroll and type issues resolved
 "use client";
 
 import { Button } from "@/components/ui/button";
@@ -96,8 +96,13 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   const processInProgress = useRef<boolean>(false);
   const initializationAttempted = useRef<boolean>(false);
   const sessionRestored = useRef<boolean>(preservingSession);
+  const oldestMessageIdRef = useRef<string | null>(null);
 
   const [streamingMessage, setStreamingMessage] = useState<string | null>(null);
+
+  // Added states for loading older messages
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
+  const [hasMoreMessages, setHasMoreMessages] = useState(true);
 
   // If the assistant calls any "tools" like logging a meal, do that here:
   // Enhanced tool handler function for ChatContainer.tsx
@@ -185,6 +190,71 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
     },
     [session?.user?.id, onMealLogged, onWeightLogged]
   );
+
+  // Function to load older messages
+  const loadOlderMessages = async () => {
+    if (!threadId || !assistantId || loadingOlderMessages || !hasMoreMessages)
+      return;
+
+    // Set loading state
+    setLoadingOlderMessages(true);
+
+    try {
+      // Get oldest message ID we've loaded so far
+      const oldestMessageId =
+        messages.length > 0
+          ? messages.reduce((oldest, msg) => {
+              // Compare timestamps or IDs to find oldest
+              if (
+                new Date(msg.timestamp).getTime() <
+                new Date(oldest.timestamp).getTime()
+              )
+                return msg;
+              return oldest;
+            }, messages[0]).id
+          : null;
+
+      // Store it for reference
+      oldestMessageIdRef.current = oldestMessageId;
+
+      // Call API to get messages before this ID
+      // In a real implementation, you'd make a call like:
+      // const olderMessages = await fetchOlderMessages(threadId, oldestMessageId, 20);
+
+      // For demo purposes, we'll create a placeholder delay
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      // Simulated older messages for demo
+      const olderMessages: Message[] = [];
+
+      // If we got any messages back
+      if (olderMessages.length > 0) {
+        // Prepend them to the current messages list
+        setMessages((prev) => [...olderMessages, ...prev]);
+
+        // Preserve scroll position after adding messages at the top
+        setTimeout(() => {
+          if (messagesContainerRef.current && oldestMessageIdRef.current) {
+            const oldTopMessage = document.getElementById(
+              oldestMessageIdRef.current
+            );
+            if (oldTopMessage) {
+              // Restore scroll position to keep the previously-top message in the same position
+              oldTopMessage.scrollIntoView({ block: "start" });
+            }
+          }
+        }, 50);
+      } else {
+        // No more messages to load
+        setHasMoreMessages(false);
+      }
+    } catch (error) {
+      console.error("Error loading older messages:", error);
+      toast.error("Couldn't load earlier messages");
+    } finally {
+      setLoadingOlderMessages(false);
+    }
+  };
 
   /**
    * Initialization effect:
@@ -314,11 +384,25 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
     preservingSession,
   ]);
 
-  // Scroll to bottom after new messages with a slight delay to ensure DOM is updated
+  // Updated scroll behavior
   useEffect(() => {
+    // Only auto-scroll to bottom for new messages if we're already near the bottom
     const scrollToBottom = () => {
-      if (messageEndRef.current) {
-        messageEndRef.current.scrollIntoView({ behavior: "smooth" });
+      if (messagesContainerRef.current) {
+        const container = messagesContainerRef.current;
+        const isNearBottom =
+          container.scrollHeight -
+            container.scrollTop -
+            container.clientHeight <
+          100;
+
+        // Only auto-scroll if near bottom or if this is a new message from the user
+        const lastMessage = messages[messages.length - 1];
+        const isUserMessage = lastMessage && lastMessage.role === "user";
+
+        if (isNearBottom || isUserMessage || messages.length <= 1) {
+          messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
+        }
       }
     };
 
@@ -326,21 +410,42 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
     return () => clearTimeout(timeoutId);
   }, [messages, isTyping]);
 
-  // Add an additional useEffect to ensure initial scroll position is at the bottom:
+  // Update the initial scroll positioning effect to keep scroll at bottom only on first load
   useEffect(() => {
-    if (messagesContainerRef.current && isInitialized) {
-      messagesContainerRef.current.scrollTop =
-        messagesContainerRef.current.scrollHeight;
-    }
-  }, [isInitialized]);
+    if (messagesContainerRef.current && isInitialized && messages.length > 0) {
+      // For initial load, scroll to bottom
+      const container = messagesContainerRef.current;
 
-  // Initialize scroll position to the bottom when the component first mounts
-  useEffect(() => {
-    if (messagesContainerRef.current && isInitialized) {
-      messagesContainerRef.current.scrollTop =
-        messagesContainerRef.current.scrollHeight;
+      // Use a flag to only do this once when first initialized
+      if (!sessionRestored.current) {
+        container.scrollTop = container.scrollHeight;
+        sessionRestored.current = true;
+      }
     }
-  }, [isInitialized]);
+  }, [isInitialized, messages.length]);
+
+  // Add scroll event listener to detect when user scrolls to top
+  useEffect(() => {
+    const handleScroll = () => {
+      const container = messagesContainerRef.current;
+      if (!container) return;
+
+      // If scrolled near the top (e.g., within 60px of top)
+      if (
+        container.scrollTop < 60 &&
+        !loadingOlderMessages &&
+        hasMoreMessages
+      ) {
+        loadOlderMessages();
+      }
+    };
+
+    const container = messagesContainerRef.current;
+    if (container) {
+      container.addEventListener("scroll", handleScroll);
+      return () => container.removeEventListener("scroll", handleScroll);
+    }
+  }, [loadingOlderMessages, hasMoreMessages]);
 
   // When component unmounts or threadId changes, save learning data
   useEffect(() => {
@@ -351,6 +456,18 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
       }
     };
   }, [threadId, messages]);
+
+  // Add cleanup effect for typing indicator
+  useEffect(() => {
+    // Cleanup function to ensure typing indicator is reset if component unmounts during a response
+    return () => {
+      if (isTyping) {
+        // If component is unmounting while typing is happening, reset the state
+        setIsTyping(false);
+        processInProgress.current = false;
+      }
+    };
+  }, [isTyping]);
 
   // Sending text message
   const handleSendMessage = async () => {
@@ -403,6 +520,14 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
 
     try {
       setIsTyping(true);
+
+      // Add safety timeout to reset typing indicator if it gets stuck
+      const typingTimeout = setTimeout(() => {
+        if (isTyping) {
+          console.log("Safety timeout: resetting typing indicator");
+          setIsTyping(false);
+        }
+      }, 30000); // 30 seconds timeout
 
       // If the message likely contains a meal, include a subtle hint for the assistant
       let messageToSend = userMsg.content;
@@ -504,8 +629,9 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
             saveMessagesToCache(threadId, finalMessages);
             updateSessionData(threadId);
 
-            // Clear the streaming message
+            // Clear the streaming message and explicitly reset typing state
             setStreamingMessage(null);
+            setIsTyping(false);
 
             // Periodically extract and store learning data
             if (finalMessages.length % 5 === 0) {
@@ -515,11 +641,14 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
         },
         handleToolCalls
       );
+
+      clearTimeout(typingTimeout); // Clear the safety timeout if all went well
     } catch (err) {
       console.error("Failed to process message:", err);
       setError("Sorry, I'm having trouble connecting. Please try again.");
       toast.error("Failed to send message. Please try again.");
       setStreamingMessage(null);
+      setIsTyping(false); // Make sure typing is reset on error
     } finally {
       setIsTyping(false);
       processInProgress.current = false;
@@ -622,6 +751,9 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
 
           // Extract learning from messages with images
           extractAndStoreAILearning(threadId, finalList);
+
+          // Make sure typing indicator is cleared
+          setIsTyping(false);
         }
       }
     } catch (err) {
@@ -634,6 +766,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
       toast.error("Failed to upload image. Please try again.");
     } finally {
       setIsUploading(false);
+      setIsTyping(false); // Explicitly reset typing state
       processInProgress.current = false;
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
@@ -759,7 +892,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-[calc(100vh-10rem)]">
       <input
         type="file"
         accept="image/*"
@@ -767,21 +900,39 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
         ref={fileInputRef}
         onChange={handleFileSelect}
       />
-
       {/* MESSAGES - Fixed height container */}
       <div
         ref={messagesContainerRef}
         className="flex-1 overflow-y-auto p-4 max-w-3xl mx-auto w-full"
         style={{
           maxHeight: "calc(100vh - 170px)",
+          // Remove justifyContent: "flex-end" as it prevents proper scrolling to top
           display: "flex",
           flexDirection: "column",
-          justifyContent: "flex-end", // This ensures messages start from bottom
-          border: "1px solid rgba(0, 0, 0, 0.1)", // Light border for Apple-inspired design
+          border: "1px solid rgba(0, 0, 0, 0.1)",
           borderRadius: "8px",
         }}
       >
+        {/* Add a spacer div that grows to push messages down when there are few messages */}
+        <div className="flex-grow" />
+
         <div className="space-y-4 w-full">
+          {/* Loading indicator for older messages */}
+          {loadingOlderMessages && (
+            <div className="flex justify-center py-2">
+              <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+            </div>
+          )}
+
+          {/* Message about reaching beginning of conversation */}
+          {!loadingOlderMessages &&
+            !hasMoreMessages &&
+            messages.length > 10 && (
+              <div className="text-center text-sm text-gray-500 py-2">
+                You've reached the beginning of the conversation
+              </div>
+            )}
+
           {error && (
             <div className="mx-auto bg-red-100 dark:bg-red-900 p-3 rounded-lg text-center">
               {error}
@@ -795,6 +946,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
               </Button>
             </div>
           )}
+
           {uploadError && (
             <div className="mx-auto bg-red-100 dark:bg-red-900 p-3 rounded-lg text-center">
               {uploadError}
@@ -819,6 +971,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
                 return (
                   <div
                     key={msg.id}
+                    id={msg.id}
                     className={cn(
                       "rounded-lg p-3 max-w-[85%] mr-auto bg-gray-200 dark:bg-gray-700 dark:text-white"
                     )}
@@ -835,6 +988,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
                 return (
                   <div
                     key={msg.id}
+                    id={msg.id}
                     className={`flex ${
                       msg.role === "user" ? "justify-end" : "justify-start"
                     }`}
@@ -867,6 +1021,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
               return (
                 <div
                   key={msg.id}
+                  id={msg.id}
                   className={cn(
                     "rounded-lg p-3 max-w-[85%]",
                     msg.role === "user"
@@ -905,10 +1060,11 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
           <div ref={messageEndRef} />
         </div>
       </div>
-
       {/* INPUT */}
-      <div className="p-4 border-t dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
-        <div className="flex items-center space-x-2 max-w-3xl mx-auto">
+      {/* Responsive INPUT area - Better for small screens */}
+      <div className="p-2 sm:p-4 border-t dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
+        {/* Regular desktop layout */}
+        <div className="hidden sm:flex items-center space-x-2 max-w-3xl mx-auto">
           <Button
             size="icon"
             variant="outline"
@@ -972,6 +1128,88 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
           >
             <Send className="h-5 w-5" />
           </Button>
+        </div>
+
+        {/* Mobile optimized layout */}
+        <div className="flex flex-col sm:hidden space-y-2">
+          {/* Input and send button */}
+          <div className="flex space-x-2">
+            <Input
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Message Niblet..."
+              className="flex-1 rounded-full border-gray-300"
+              disabled={isTyping || isUploading || processInProgress.current}
+            />
+
+            <Button
+              size="icon"
+              onClick={handleSendMessage}
+              disabled={
+                !inputValue.trim() ||
+                isTyping ||
+                !threadId ||
+                !assistantId ||
+                isUploading ||
+                processInProgress.current
+              }
+              className="rounded-full h-10 w-10 flex items-center justify-center shrink-0"
+            >
+              <Send className="h-5 w-5" />
+            </Button>
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex justify-between items-center">
+            <div className="flex space-x-2">
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={handleCameraClick}
+                disabled={isTyping || isUploading || processInProgress.current}
+                className="rounded-full h-8 w-8 flex items-center justify-center"
+              >
+                <Camera
+                  className={`h-4 w-4 ${isUploading ? "animate-pulse" : ""}`}
+                />
+              </Button>
+
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={handlePhoneCall}
+                disabled={isTyping || processInProgress.current}
+                className="relative rounded-full h-8 w-8 flex items-center justify-center"
+              >
+                <Phone className="h-4 w-4" />
+                {isCalling && (
+                  <span className="absolute top-0 right-0 w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span>
+                )}
+              </Button>
+
+              <Button
+                size="icon"
+                variant={isRecording ? "destructive" : "ghost"}
+                onClick={toggleRecording}
+                disabled={isTyping || isUploading || processInProgress.current}
+                className="rounded-full h-8 w-8 flex items-center justify-center"
+              >
+                {isRecording ? (
+                  <MicOff className="h-4 w-4" />
+                ) : (
+                  <Mic className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
+
+            {/* Optional typing indicator */}
+            {isTyping && (
+              <span className="text-xs text-gray-500 animate-pulse">
+                Niblet is typing...
+              </span>
+            )}
+          </div>
         </div>
       </div>
     </div>
