@@ -335,10 +335,7 @@ const Dashboard = ({
     <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-900 max-w-3xl mx-auto">
       {/* Header */}
       <header className="py-3 px-4 border-b dark:border-gray-800 flex justify-between items-center">
-        <HamburgerMenu
-          currentPersonality={aiPersonality}
-          onPersonalityChange={handlePersonalityChange}
-        />
+        <HamburgerMenu />
         <div className="text-2xl font-bold">
           niblet<span className="text-blue-400">.ai</span>
         </div>
@@ -412,8 +409,8 @@ const Dashboard = ({
         <CollapsibleSection title="Weight Tracking" initiallyExpanded={true}>
           <WeightLogComponent
             onWeightLogged={handleWeightLogged}
-            startWeight={userProfile?.currentWeight || undefined}
-            targetWeight={userProfile?.targetWeight || undefined}
+            startWeight={userProfile?.currentWeight}
+            targetWeight={userProfile?.targetWeight}
           />
         </CollapsibleSection>
 

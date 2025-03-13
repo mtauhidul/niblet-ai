@@ -5,6 +5,7 @@ export interface Message {
   content: string;
   timestamp: Date;
   imageUrl?: string;
+  isStreaming?: boolean; // Add this flag to indicate streaming
 }
 
 export interface AssistantMessage {

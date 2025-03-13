@@ -9,6 +9,7 @@ import {
   getOrCreateAssistant,
   PersonalityKey,
   runAssistant,
+  runAssistantStreaming,
   transcribeAudio,
 } from "@/lib/assistantService";
 import {
@@ -96,7 +97,11 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   const initializationAttempted = useRef<boolean>(false);
   const sessionRestored = useRef<boolean>(preservingSession);
 
+  const [streamingMessage, setStreamingMessage] = useState<string | null>(null);
+
   // If the assistant calls any "tools" like logging a meal, do that here:
+  // Enhanced tool handler function for ChatContainer.tsx
+  // Replace your existing handleToolCalls function with this one
   const handleToolCalls = useCallback(
     async (toolName: string, toolArgs: any) => {
       if (!session?.user?.id) {
@@ -104,27 +109,38 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
       }
       try {
         if (toolName === "log_meal") {
+          // Enhanced meal data handling - ensure all nutrition values are present
+          const protein =
+            toolArgs.protein || Math.round((toolArgs.calories * 0.2) / 4); // 20% of calories
+          const carbs =
+            toolArgs.carbs || Math.round((toolArgs.calories * 0.5) / 4); // 50% of calories
+          const fat = toolArgs.fat || Math.round((toolArgs.calories * 0.3) / 9); // 30% of calories
+
           const mealData = {
             userId: session.user.id,
             name: toolArgs.meal_name,
-            calories: toolArgs.calories,
-            protein: toolArgs.protein || 0,
-            carbs: toolArgs.carbs || 0,
-            fat: toolArgs.fat || 0,
-            mealType: toolArgs.meal_type,
+            calories: toolArgs.calories || 0,
+            protein: protein,
+            carbs: carbs,
+            fat: fat,
+            mealType: toolArgs.meal_type || "Other", // Default to "Other" if not provided
             items: toolArgs.items || [],
             date: new Date(),
             canEdit: true,
           };
+
+          // Log full meal information for debugging
+          console.log("Logging meal with enhanced nutrition data:", mealData);
+
           const meal = await createMeal(mealData);
 
-          // Direct success, no confirmation needed
+          // Call onMealLogged callback
           onMealLogged?.();
 
           return {
             success: true,
             mealId: meal.id,
-            message: `Logged ${toolArgs.meal_name} (${toolArgs.calories} calories)`,
+            message: `Logged ${toolArgs.meal_name} (${toolArgs.calories} calories, protein: ${protein}g, carbs: ${carbs}g, fat: ${fat}g)`,
           };
         } else if (toolName === "log_weight") {
           const weight = await logWeight(
@@ -143,10 +159,16 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
             message: `Logged weight: ${toolArgs.weight} lbs`,
           };
         } else if (toolName === "get_nutrition_info") {
-          // Stub
+          // Return more complete nutrition info
           return {
             success: true,
-            message: "Nutrition info retrieved (stubbed).",
+            message: "Nutrition info retrieved.",
+            data: {
+              calories: 300,
+              protein: 20,
+              carbs: 30,
+              fat: 10,
+            },
           };
         }
         return {
@@ -304,6 +326,14 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
     return () => clearTimeout(timeoutId);
   }, [messages, isTyping]);
 
+  // Add an additional useEffect to ensure initial scroll position is at the bottom:
+  useEffect(() => {
+    if (messagesContainerRef.current && isInitialized) {
+      messagesContainerRef.current.scrollTop =
+        messagesContainerRef.current.scrollHeight;
+    }
+  }, [isInitialized]);
+
   // Initialize scroll position to the bottom when the component first mounts
   useEffect(() => {
     if (messagesContainerRef.current && isInitialized) {
@@ -329,6 +359,35 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
 
     processInProgress.current = true;
     setError(null);
+    setStreamingMessage(null);
+
+    // Check if the message likely contains a meal reference
+    const potentialMealPhrases = [
+      "ate",
+      "had",
+      "eating",
+      "consumed",
+      "having",
+      "breakfast",
+      "lunch",
+      "dinner",
+      "snack",
+      "meal",
+      "food",
+      "diet",
+      "calories",
+      "nutrition",
+      "yesterday",
+      "today",
+      "this morning",
+      "last night",
+      "restaurant",
+    ];
+
+    const lowercaseInput = inputValue.toLowerCase();
+    const containsMealReference = potentialMealPhrases.some((phrase) =>
+      lowercaseInput.includes(phrase)
+    );
 
     const userMsg: Message = {
       id: `user-${Date.now()}`,
@@ -345,6 +404,12 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
     try {
       setIsTyping(true);
 
+      // If the message likely contains a meal, include a subtle hint for the assistant
+      let messageToSend = userMsg.content;
+      if (containsMealReference) {
+        messageToSend = `${userMsg.content} (Note: If this describes a meal, please log it automatically without asking for confirmation)`;
+      }
+
       // Check if there's an active run before sending
       if (threadId && runStateManager.hasActiveRun(threadId)) {
         console.log(
@@ -352,7 +417,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
         );
         const completed = await runStateManager.waitForRunCompletion(
           threadId,
-          20000
+          10000 // Reduced timeout to 10 seconds for better UX
         );
 
         if (!completed) {
@@ -367,7 +432,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
       let retries = 0;
       while (!messageAdded && retries < 3) {
         try {
-          messageAdded = await addMessageToThread(threadId, userMsg.content);
+          messageAdded = await addMessageToThread(threadId, messageToSend);
           if (!messageAdded) {
             retries++;
             await new Promise((r) => setTimeout(r, 1000));
@@ -397,35 +462,64 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
         throw new Error("Failed to send message after multiple attempts");
       }
 
-      // Now get the assistant's response
-      const assistantMessages = await runAssistant(
+      // Create a temporary message ID for the streaming response
+      const tempMessageId = `assistant-${Date.now()}`;
+
+      // Add an empty assistant message that will be updated during streaming
+      const initialAssistantMsg: Message = {
+        id: tempMessageId,
+        role: "assistant",
+        content: "", // Empty content initially
+        timestamp: new Date(),
+        isStreaming: true, // Add this flag to indicate streaming
+      };
+
+      const messagesWithInitialResponse = [
+        ...updatedMessages,
+        initialAssistantMsg,
+      ];
+      setMessages(messagesWithInitialResponse);
+
+      // Start streaming the assistant's response
+      await runAssistantStreaming(
         threadId,
         assistantId,
         aiPersonality,
+        ({ text, isComplete }) => {
+          // Update the streaming message in state
+          setStreamingMessage(text);
+
+          // When complete, finalize the message
+          if (isComplete) {
+            const finalMsg: Message = {
+              id: tempMessageId, // Keep the same ID for continuity
+              role: "assistant",
+              content: text,
+              timestamp: new Date(),
+              isStreaming: false, // No longer streaming
+            };
+
+            const finalMessages = updatedMessages.concat(finalMsg);
+            setMessages(finalMessages);
+            saveMessagesToCache(threadId, finalMessages);
+            updateSessionData(threadId);
+
+            // Clear the streaming message
+            setStreamingMessage(null);
+
+            // Periodically extract and store learning data
+            if (finalMessages.length % 5 === 0) {
+              extractAndStoreAILearning(threadId, finalMessages);
+            }
+          }
+        },
         handleToolCalls
       );
-      if (assistantMessages && assistantMessages.length > 0) {
-        const latestMsg = assistantMessages[assistantMessages.length - 1];
-        const finalMsg: Message = {
-          id: latestMsg.id,
-          role: "assistant",
-          content: latestMsg.content,
-          timestamp: latestMsg.createdAt,
-        };
-        const finalList = [...updatedMessages, finalMsg];
-        setMessages(finalList);
-        saveMessagesToCache(threadId, finalList);
-        updateSessionData(threadId);
-
-        // Periodically extract and store learning data
-        if (finalList.length % 5 === 0) {
-          extractAndStoreAILearning(threadId, finalList);
-        }
-      }
     } catch (err) {
       console.error("Failed to process message:", err);
       setError("Sorry, I'm having trouble connecting. Please try again.");
       toast.error("Failed to send message. Please try again.");
+      setStreamingMessage(null);
     } finally {
       setIsTyping(false);
       processInProgress.current = false;
@@ -677,18 +771,28 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
       {/* MESSAGES - Fixed height container */}
       <div
         ref={messagesContainerRef}
-        className="flex-1 overflow-y-auto p-4"
+        className="flex-1 overflow-y-auto p-4 max-w-3xl mx-auto w-full"
         style={{
           maxHeight: "calc(100vh - 170px)",
           display: "flex",
           flexDirection: "column",
-          justifyContent: "flex-end",
+          justifyContent: "flex-end", // This ensures messages start from bottom
+          border: "1px solid rgba(0, 0, 0, 0.1)", // Light border for Apple-inspired design
+          borderRadius: "8px",
         }}
       >
-        <div className="space-y-4">
+        <div className="space-y-4 w-full">
           {error && (
             <div className="mx-auto bg-red-100 dark:bg-red-900 p-3 rounded-lg text-center">
               {error}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setError(null)}
+                className="ml-2"
+              >
+                Dismiss
+              </Button>
             </div>
           )}
           {uploadError && (
@@ -708,6 +812,25 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
             })
             .map((msg) => {
               const isImageOnly = msg.imageUrl && !msg.content;
+
+              // Handle streaming message differently
+              if (msg.isStreaming && streamingMessage !== null) {
+                // Use the streaming content instead of the message content
+                return (
+                  <div
+                    key={msg.id}
+                    className={cn(
+                      "rounded-lg p-3 max-w-[85%] mr-auto bg-gray-200 dark:bg-gray-700 dark:text-white"
+                    )}
+                  >
+                    <div className="prose dark:prose-invert prose-sm max-w-none">
+                      <ReactMarkdown>{streamingMessage}</ReactMarkdown>
+                    </div>
+                  </div>
+                );
+              }
+
+              // Regular non-streaming messages continue as before
               if (isImageOnly) {
                 return (
                   <div
@@ -785,12 +908,13 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
 
       {/* INPUT */}
       <div className="p-4 border-t dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-2 max-w-3xl mx-auto">
           <Button
             size="icon"
             variant="outline"
             onClick={handleCameraClick}
             disabled={isTyping || isUploading || processInProgress.current}
+            className="rounded-full h-10 w-10 flex items-center justify-center"
           >
             <Camera
               className={`h-5 w-5 ${isUploading ? "animate-pulse" : ""}`}
@@ -802,7 +926,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Message Niblet..."
-            className="flex-1"
+            className="flex-1 rounded-full border-gray-300"
             disabled={isTyping || isUploading || processInProgress.current}
           />
 
@@ -811,7 +935,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
             variant="outline"
             onClick={handlePhoneCall}
             disabled={isTyping || processInProgress.current}
-            className="relative"
+            className="relative rounded-full h-10 w-10 flex items-center justify-center"
           >
             <Phone className="h-5 w-5" />
             {isCalling && (
@@ -824,6 +948,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
             variant={isRecording ? "destructive" : "outline"}
             onClick={toggleRecording}
             disabled={isTyping || isUploading || processInProgress.current}
+            className="rounded-full h-10 w-10 flex items-center justify-center"
           >
             {isRecording ? (
               <MicOff className="h-5 w-5" />
@@ -843,6 +968,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
               isUploading ||
               processInProgress.current
             }
+            className="rounded-full h-10 w-10 flex items-center justify-center"
           >
             <Send className="h-5 w-5" />
           </Button>

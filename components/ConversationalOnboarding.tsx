@@ -60,6 +60,9 @@ const ConversationalOnboarding = () => {
   const { data: session, status } = useSession();
 
   // Initialize chat
+  // Update the ConversationalOnboarding.tsx component
+
+  // Update the useEffect for initialization to set the specific onboarding flow
   useEffect(() => {
     const initializeOnboarding = async () => {
       setIsInitializing(true);
@@ -74,7 +77,7 @@ const ConversationalOnboarding = () => {
         setThreadId(newThreadId);
         setAssistantId(newAssistantId);
 
-        // Add initial system message to guide the assistant with the specific flow
+        // Add initial system message with the exact script from requirements
         await addMessageToThread(
           newThreadId,
           "You are helping a new user set up their profile for a nutrition and health app. " +
@@ -108,7 +111,7 @@ const ConversationalOnboarding = () => {
             },
           ]);
         } else {
-          // Fallback welcome message
+          // Fallback welcome message that matches the script
           setMessages([
             {
               id: "welcome",
@@ -137,6 +140,166 @@ const ConversationalOnboarding = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, router]);
+
+  // Update the onboarding completion logic to automatically transition to dashboard
+  // and prompt for first weight and meal:
+
+  // When onboarding is complete, save data and redirect to dashboard
+  useEffect(() => {
+    if (isComplete && threadId && session?.user?.id) {
+      const completeOnboarding = async () => {
+        try {
+          // Calculate target calories based on profile data
+          let targetCalories = 0;
+
+          if (
+            extractedData.currentWeight &&
+            extractedData.height &&
+            extractedData.age
+          ) {
+            // Simple BMR calculation based on weight (in lbs), height (in inches), and age
+            // Using a modified Harris-Benedict equation
+            const weight = extractedData.currentWeight;
+            const height = extractedData.height;
+            const age = extractedData.age;
+
+            // Base BMR calculation (very simplified)
+            const bmr =
+              10 * (weight * 0.453592) + 6.25 * (height * 2.54) - 5 * age;
+
+            // Activity multiplier
+            let activityMultiplier = 1.2; // Default sedentary
+            if (extractedData.activityLevel) {
+              const level = extractedData.activityLevel.toLowerCase();
+              if (level.includes("lightly active")) activityMultiplier = 1.375;
+              else if (level.includes("moderately active"))
+                activityMultiplier = 1.55;
+              else if (level.includes("very active"))
+                activityMultiplier = 1.725;
+              else if (level.includes("extremely active"))
+                activityMultiplier = 1.9;
+            }
+
+            // Adjust for weight goal
+            targetCalories = Math.round(bmr * activityMultiplier);
+
+            // If weight loss goal, create a moderate deficit
+            if (
+              extractedData.targetWeight &&
+              extractedData.targetWeight < extractedData.currentWeight
+            ) {
+              targetCalories -= 500; // Standard deficit for ~1lb/week loss
+            }
+          } else {
+            // Default if we can't calculate
+            targetCalories = 2000;
+          }
+
+          // Calculate macros based on target calories
+          const targetProtein = Math.round((targetCalories * 0.3) / 4); // 30% protein
+          const targetFat = Math.round((targetCalories * 0.3) / 9); // 30% fat
+          const targetCarbs = Math.round((targetCalories * 0.4) / 4); // 40% carbs
+
+          // Create a new thread for the main chat (separate from onboarding)
+          const mainThreadId = await createThread();
+          if (!mainThreadId) throw new Error("Failed to create main thread");
+
+          const mainAssistantId = await getOrCreateAssistant("best-friend");
+          if (!mainAssistantId)
+            throw new Error("Failed to create main assistant");
+
+          // Save all the onboarding data to user profile
+          const profileData: Record<string, any> = {
+            onboardingThreadId: threadId,
+            onboardingCompleted: true,
+            threadId: mainThreadId, // Set the main thread ID
+            assistantId: mainAssistantId, // Set the main assistant ID
+            aiPersonality: "best-friend", // Start with best-friend personality
+            targetCalories: targetCalories,
+            targetProtein: targetProtein,
+            targetCarbs: targetCarbs,
+            targetFat: targetFat,
+          };
+
+          // Only add fields that have actual values
+          if (extractedData.name) profileData.name = extractedData.name;
+          if (extractedData.age !== null && extractedData.age !== undefined)
+            profileData.age = extractedData.age;
+          if (extractedData.gender) profileData.gender = extractedData.gender;
+          if (
+            extractedData.currentWeight !== null &&
+            extractedData.currentWeight !== undefined
+          )
+            profileData.currentWeight = extractedData.currentWeight;
+          if (
+            extractedData.targetWeight !== null &&
+            extractedData.targetWeight !== undefined
+          )
+            profileData.targetWeight = extractedData.targetWeight;
+          if (
+            extractedData.height !== null &&
+            extractedData.height !== undefined
+          )
+            profileData.height = extractedData.height;
+          if (extractedData.activityLevel)
+            profileData.activityLevel = extractedData.activityLevel;
+          if (
+            extractedData.dietaryPreferences &&
+            extractedData.dietaryPreferences.length > 0
+          )
+            profileData.dietaryPreferences = extractedData.dietaryPreferences;
+
+          // Set goal type only if there's a target weight
+          if (extractedData.targetWeight) profileData.goalType = "Weight Loss";
+
+          // Now send only the fields with actual values to Firestore
+          await createOrUpdateUserProfile(session.user.id, profileData);
+
+          // Initialize the main chat thread with a welcome and prompt for first meal
+          await addMessageToThread(
+            mainThreadId,
+            `System: Initialize with this user info: 
+          Name: ${extractedData.name || "User"}, 
+          Current Weight: ${extractedData.currentWeight || "Not provided"}, 
+          Target Weight: ${extractedData.targetWeight || "Not provided"}, 
+          Height: ${extractedData.height || "Not provided"}, 
+          Age: ${extractedData.age || "Not provided"},
+          Activity Level: ${extractedData.activityLevel || "Not provided"},
+          Dietary Preferences: ${
+            extractedData.dietaryPreferences
+              ? extractedData.dietaryPreferences.join(", ")
+              : "None"
+          }.
+          
+          Welcome them to the app and ask them what they've eaten today so you can log their first meal. Be brief and friendly.`
+          );
+
+          // Run the assistant once to generate the welcome message
+          await runAssistant(
+            mainThreadId,
+            mainAssistantId,
+            "best-friend",
+            async () => {
+              return { success: true, message: "Initial setup complete" };
+            }
+          );
+
+          // Wait a moment to show the final message
+          setTimeout(() => {
+            // Redirect to dashboard
+            router.push("/dashboard");
+          }, 2000);
+        } catch (error) {
+          console.error("Error completing onboarding:", error);
+          setError(
+            "There was a problem saving your profile. Please try again."
+          );
+        }
+      };
+
+      completeOnboarding();
+    }
+  }, [isComplete, threadId, session?.user?.id, router, extractedData]);
 
   // Process information extraction through the AI assistant
   const handleToolCall = async (toolName: string, toolArgs: any) => {
@@ -653,7 +816,7 @@ const ConversationalOnboarding = () => {
       </header>
 
       {/* Progress Indicator */}
-      <div className="px-4 pt-2">
+      <div className="px-4 pt-2 pb-4">
         <div className="flex justify-between text-sm text-gray-500 mb-1">
           <span>Onboarding Progress</span>
           <span>{onboardingStep}/6 completed</span>

@@ -1,8 +1,9 @@
-// Modified version of app/profile/page.tsx with DeleteAccountSection
+// Updated Profile Page with reorganized sections according to requirements
 "use client";
 
 import DeleteAccountSection from "@/components/DeleteAccountSection";
 import HamburgerMenu from "@/components/HamburgerMenu";
+import HeightSelector from "@/components/HeightSelector";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -14,6 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import UserAvatar from "@/components/UserAvatar";
 import { ArrowLeft, Save } from "lucide-react";
 import { useSession } from "next-auth/react";
@@ -26,6 +28,7 @@ export default function ProfilePage() {
   const router = useRouter();
   const [isSaving, setIsSaving] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [activeTab, setActiveTab] = useState("goals");
 
   const [profileData, setProfileData] = useState({
     name: "",
@@ -33,6 +36,9 @@ export default function ProfilePage() {
     age: "",
     gender: "",
     height: "",
+    currentWeight: "",
+    targetWeight: "",
+    targetDate: "",
     dietaryPreferences: [] as string[],
     allergies: [] as string[],
     aiPersonality: "best-friend",
@@ -79,6 +85,9 @@ export default function ProfilePage() {
           age: userProfile.age?.toString() || "",
           gender: userProfile.gender || "",
           height: userProfile.height?.toString() || "",
+          currentWeight: userProfile.currentWeight?.toString() || "",
+          targetWeight: userProfile.targetWeight?.toString() || "",
+          targetDate: userProfile.targetDate || "",
           dietaryPreferences: userProfile.dietaryPreferences || [],
           allergies: userProfile.allergies || [],
           aiPersonality: userProfile.aiPersonality || "best-friend",
@@ -104,6 +113,10 @@ export default function ProfilePage() {
     setProfileData((prev) => ({ ...prev, [name]: value }));
   };
 
+  const handleHeightChange = (heightInInches: number) => {
+    setProfileData((prev) => ({ ...prev, height: heightInInches.toString() }));
+  };
+
   const saveProfile = async () => {
     setIsSaving(true);
 
@@ -119,6 +132,13 @@ export default function ProfilePage() {
           height: profileData.height
             ? parseFloat(profileData.height)
             : undefined,
+          currentWeight: profileData.currentWeight
+            ? parseFloat(profileData.currentWeight)
+            : undefined,
+          targetWeight: profileData.targetWeight
+            ? parseFloat(profileData.targetWeight)
+            : undefined,
+          targetDate: profileData.targetDate,
           dietaryPreferences: profileData.dietaryPreferences,
           allergies: profileData.allergies,
           aiPersonality: profileData.aiPersonality,
@@ -148,13 +168,13 @@ export default function ProfilePage() {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      {/* Header - Matching exactly the image */}
+      {/* Header */}
       <header className="flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
         <HamburgerMenu />
         <div className="text-2xl font-bold">
           niblet<span className="text-blue-400">.ai</span>
         </div>
-        <div className="w-6"></div> {/* Empty div for balanced spacing */}
+        <div className="w-6"></div>
       </header>
 
       <div className="max-w-3xl mx-auto p-4">
@@ -178,201 +198,275 @@ export default function ProfilePage() {
           <p className="text-sm text-gray-500">{profileData.email}</p>
         </div>
 
-        {/* Personal Information */}
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle>Personal Information</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="name">Name (from account)</Label>
-                <div className="h-9 px-3 py-1 border border-input rounded-md bg-gray-100 dark:bg-gray-800 flex items-center">
-                  {profileData.name || "Name not provided"}
+        {/* Profile Tabs */}
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-6">
+          <TabsList className="w-full grid grid-cols-4">
+            <TabsTrigger value="goals">Goals</TabsTrigger>
+            <TabsTrigger value="dietary">Dietary</TabsTrigger>
+            <TabsTrigger value="preferences">Preferences</TabsTrigger>
+            <TabsTrigger value="personal">Personal</TabsTrigger>
+          </TabsList>
+
+          {/* Goals Tab */}
+          <TabsContent value="goals">
+            <Card>
+              <CardHeader>
+                <CardTitle>Weight Goals</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="currentWeight">Current Weight (lbs)</Label>
+                    <Input
+                      id="currentWeight"
+                      name="currentWeight"
+                      value={profileData.currentWeight}
+                      onChange={handleInputChange}
+                      type="number"
+                      step="0.1"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="targetWeight">Target Weight (lbs)</Label>
+                    <Input
+                      id="targetWeight"
+                      name="targetWeight"
+                      value={profileData.targetWeight}
+                      onChange={handleInputChange}
+                      type="number"
+                      step="0.1"
+                    />
+                  </div>
                 </div>
-              </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="email">Email (from account)</Label>
-                <div className="h-9 px-3 py-1 border border-input rounded-md bg-gray-100 dark:bg-gray-800 flex items-center">
-                  {profileData.email || "Email not provided"}
+                <div className="space-y-2">
+                  <Label htmlFor="targetDate">Target Date</Label>
+                  <Input
+                    id="targetDate"
+                    name="targetDate"
+                    type="date"
+                    value={profileData.targetDate}
+                    onChange={handleInputChange}
+                  />
+                  <p className="text-xs text-gray-500">
+                    When you aim to reach your target weight
+                  </p>
                 </div>
-              </div>
-            </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="age">Age</Label>
-                <Input
-                  id="age"
-                  name="age"
-                  type="number"
-                  value={profileData.age}
-                  onChange={handleInputChange}
-                />
-              </div>
+          {/* Dietary Preferences Tab */}
+          <TabsContent value="dietary">
+            <Card>
+              <CardHeader>
+                <CardTitle>Dietary Preferences</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Diet Type</Label>
+                  <Select
+                    value={profileData.dietaryPreferences?.[0] || ""}
+                    onValueChange={(value) =>
+                      handleSelectChange("dietaryPreferences", [value])
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select diet type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="omnivore">Omnivore</SelectItem>
+                      <SelectItem value="vegetarian">Vegetarian</SelectItem>
+                      <SelectItem value="vegan">Vegan</SelectItem>
+                      <SelectItem value="pescatarian">Pescatarian</SelectItem>
+                      <SelectItem value="keto">Keto</SelectItem>
+                      <SelectItem value="paleo">Paleo</SelectItem>
+                      <SelectItem value="mediterranean">
+                        Mediterranean
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="gender">Gender</Label>
-                <Select
-                  value={profileData.gender}
-                  onValueChange={(value) => handleSelectChange("gender", value)}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select gender" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="male">Male</SelectItem>
-                    <SelectItem value="female">Female</SelectItem>
-                    <SelectItem value="non-binary">Non-binary</SelectItem>
-                    <SelectItem value="other">Other</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+                <div className="space-y-2">
+                  <Label htmlFor="allergies">Food Allergies</Label>
+                  <Input
+                    id="allergies"
+                    name="allergies"
+                    placeholder="e.g., peanuts, shellfish, dairy (comma separated)"
+                    value={profileData.allergies?.join(", ") || ""}
+                    onChange={(e) => {
+                      const allergyArray = e.target.value
+                        .split(",")
+                        .map((item) => item.trim())
+                        .filter(Boolean);
+                      setProfileData((prev) => ({
+                        ...prev,
+                        allergies: allergyArray,
+                      }));
+                    }}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
 
-              <div className="space-y-2">
-                <Label htmlFor="height">Height (inches)</Label>
-                <Input
-                  id="height"
-                  name="height"
-                  type="number"
-                  value={profileData.height}
-                  onChange={handleInputChange}
-                />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+          {/* App Preferences Tab */}
+          <TabsContent value="preferences">
+            <Card>
+              <CardHeader>
+                <CardTitle>App Preferences</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="space-y-2">
+                  <Label htmlFor="aiPersonality">Niblet's Personality</Label>
+                  <Select
+                    value={profileData.aiPersonality}
+                    onValueChange={(value) =>
+                      handleSelectChange("aiPersonality", value)
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select personality" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="best-friend">
+                        Best Friend (Warm & Encouraging)
+                      </SelectItem>
+                      <SelectItem value="professional-coach">
+                        Professional Coach (Data-Driven)
+                      </SelectItem>
+                      <SelectItem value="tough-love">
+                        Tough Love (Direct & Challenging)
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
 
-        {/* Dietary Preferences */}
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle>Dietary Preferences</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label>Diet Type</Label>
-              <Select
-                value={profileData.dietaryPreferences?.[0] || ""}
-                onValueChange={(value) =>
-                  handleSelectChange("dietaryPreferences", [value])
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select diet type" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="omnivore">Omnivore</SelectItem>
-                  <SelectItem value="vegetarian">Vegetarian</SelectItem>
-                  <SelectItem value="vegan">Vegan</SelectItem>
-                  <SelectItem value="pescatarian">Pescatarian</SelectItem>
-                  <SelectItem value="keto">Keto</SelectItem>
-                  <SelectItem value="paleo">Paleo</SelectItem>
-                  <SelectItem value="mediterranean">Mediterranean</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+                <div className="space-y-2">
+                  <Label htmlFor="preferredMealFrequency">
+                    Preferred Meal Frequency
+                  </Label>
+                  <Select
+                    value={profileData.preferredMealFrequency}
+                    onValueChange={(value) =>
+                      handleSelectChange("preferredMealFrequency", value)
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select meal frequency" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="3">3 meals per day</SelectItem>
+                      <SelectItem value="5">5 meals per day</SelectItem>
+                      <SelectItem value="6">6 meals per day</SelectItem>
+                      <SelectItem value="custom">
+                        Custom meal schedule
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    This helps Niblet provide better meal suggestions and
+                    reminders
+                  </p>
+                </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="allergies">Food Allergies</Label>
-              <Input
-                id="allergies"
-                name="allergies"
-                placeholder="e.g., peanuts, shellfish, dairy (comma separated)"
-                value={profileData.allergies?.join(", ") || ""}
-                onChange={(e) => {
-                  const allergyArray = e.target.value
-                    .split(",")
-                    .map((item) => item.trim())
-                    .filter(Boolean);
-                  setProfileData((prev) => ({
-                    ...prev,
-                    allergies: allergyArray,
-                  }));
-                }}
-              />
-            </div>
-          </CardContent>
-        </Card>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="receiveNotifications"
+                    checked={profileData.receiveNotifications}
+                    onChange={(e) => {
+                      setProfileData((prev) => ({
+                        ...prev,
+                        receiveNotifications: e.target.checked,
+                      }));
+                    }}
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <Label
+                    htmlFor="receiveNotifications"
+                    className="text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    Receive meal reminders and notifications
+                  </Label>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
 
-        {/* App Preferences */}
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle>App Preferences</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="space-y-2">
-              <Label htmlFor="aiPersonality">AI Personality</Label>
-              <Select
-                value={profileData.aiPersonality}
-                onValueChange={(value) =>
-                  handleSelectChange("aiPersonality", value)
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select personality" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="best-friend">
-                    Best Friend (Warm & Encouraging)
-                  </SelectItem>
-                  <SelectItem value="professional-coach">
-                    Professional Coach (Data-Driven)
-                  </SelectItem>
-                  <SelectItem value="tough-love">
-                    Tough Love (Direct & Challenging)
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+          {/* Personal Information Tab */}
+          <TabsContent value="personal">
+            <Card>
+              <CardHeader>
+                <CardTitle>Personal Information</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="name">Name (from account)</Label>
+                    <div className="h-9 px-3 py-1 border border-input rounded-md bg-gray-100 dark:bg-gray-800 flex items-center">
+                      {profileData.name || "Name not provided"}
+                    </div>
+                  </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="preferredMealFrequency">
-                Preferred Meal Frequency
-              </Label>
-              <Select
-                value={profileData.preferredMealFrequency}
-                onValueChange={(value) =>
-                  handleSelectChange("preferredMealFrequency", value)
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select meal frequency" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="3">3 meals per day</SelectItem>
-                  <SelectItem value="5">5 meals per day</SelectItem>
-                  <SelectItem value="6">6 meals per day</SelectItem>
-                  <SelectItem value="custom">Custom meal schedule</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-gray-500 mt-1">
-                This helps Niblet provide better meal suggestions and reminders
-              </p>
-            </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="email">Email (from account)</Label>
+                    <div className="h-9 px-3 py-1 border border-input rounded-md bg-gray-100 dark:bg-gray-800 flex items-center">
+                      {profileData.email || "Email not provided"}
+                    </div>
+                  </div>
+                </div>
 
-            <div className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                id="receiveNotifications"
-                checked={profileData.receiveNotifications}
-                onChange={(e) => {
-                  setProfileData((prev) => ({
-                    ...prev,
-                    receiveNotifications: e.target.checked,
-                  }));
-                }}
-                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-              />
-              <Label
-                htmlFor="receiveNotifications"
-                className="text-sm font-medium text-gray-700 dark:text-gray-300"
-              >
-                Receive meal reminders and notifications
-              </Label>
-            </div>
-          </CardContent>
-        </Card>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="age">Age</Label>
+                    <Input
+                      id="age"
+                      name="age"
+                      type="number"
+                      value={profileData.age}
+                      onChange={handleInputChange}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="gender">Gender</Label>
+                    <Select
+                      value={profileData.gender}
+                      onValueChange={(value) =>
+                        handleSelectChange("gender", value)
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select gender" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="male">Male</SelectItem>
+                        <SelectItem value="female">Female</SelectItem>
+                        <SelectItem value="non-binary">Non-binary</SelectItem>
+                        <SelectItem value="other">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Height</Label>
+                  <HeightSelector
+                    initialHeight={
+                      profileData.height
+                        ? parseInt(profileData.height)
+                        : undefined
+                    }
+                    onChange={handleHeightChange}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
 
         {/* Save Button */}
         <div className="flex justify-end mb-10">

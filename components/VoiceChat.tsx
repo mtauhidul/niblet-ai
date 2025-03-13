@@ -1,3 +1,5 @@
+// Updated VoiceChat.tsx for improved voice integration
+
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -30,19 +32,19 @@ interface EnhancedVoiceChatProps {
 const AudioWaveform: React.FC<{ isActive: boolean }> = ({ isActive }) => {
   return (
     <div
-      className={`flex items-center justify-center h-8 ${
+      className={`flex items-center justify-center h-12 ${
         isActive ? "opacity-100" : "opacity-30"
       }`}
     >
-      {[...Array(5)].map((_, i) => (
+      {[...Array(12)].map((_, i) => (
         <div
           key={i}
           className={`w-1 mx-0.5 bg-blue-500 rounded-full transform transition-all duration-200 ${
             isActive ? "animate-sound-wave" : "h-2"
           }`}
           style={{
-            height: isActive ? `${Math.random() * 16 + 4}px` : "8px",
-            animationDelay: `${i * 0.1}s`,
+            height: isActive ? `${Math.random() * 24 + 4}px` : "8px",
+            animationDelay: `${i * 0.05}s`,
           }}
         />
       ))}
@@ -114,6 +116,9 @@ const EnhancedVoiceChat: React.FC<EnhancedVoiceChatProps> = ({
   const speechSynthesisRef = useRef<SpeechSynthesisUtterance | null>(null);
   const processingRef = useRef<boolean>(false);
   const listeningRef = useRef<boolean>(false);
+  const voiceChatInstanceIdRef = useRef<string>(
+    Math.random().toString(36).substring(2, 15)
+  );
 
   // Start timer for call duration
   const startCallTimer = useCallback(() => {
@@ -171,6 +176,19 @@ const EnhancedVoiceChat: React.FC<EnhancedVoiceChatProps> = ({
     [onMealLogged, onWeightLogged]
   );
 
+  // Specially format text for speech synthesis to handle emoji descriptions
+  const formatTextForSpeech = (text: string): string => {
+    // Replace emoji description patterns like [:smile:] with just the word "smile"
+    return text
+      .replace(/\[:(.*?):\]/g, "$1") // Replace [:emoji:] format
+      .replace(/\([^)]*\)/g, "") // Remove parenthetical descriptions
+      .replace(/:[a-z_]+:/g, "") // Remove :emoji: format
+      .replace(/😊|😄|😃|😀|🙂/g, "") // Remove common emojis
+      .replace(/✅|✔️|👍|👎|❤️|🔥|⭐/g, "") // Remove more common emojis
+      .replace(/\s+/g, " ") // Normalize whitespace
+      .trim();
+  };
+
   // Setup speech synthesis with voice selection
   const setupSpeechSynthesis = useCallback(() => {
     if (typeof window === "undefined" || !window.speechSynthesis) return;
@@ -213,52 +231,6 @@ const EnhancedVoiceChat: React.FC<EnhancedVoiceChatProps> = ({
     }
   }, []);
 
-  // Speak text using speech synthesis
-  const speakText = useCallback(
-    (text: string) => {
-      if (typeof window === "undefined" || !window.speechSynthesis || !text)
-        return;
-
-      // Cancel any ongoing speech
-      window.speechSynthesis.cancel();
-
-      if (!speechSynthesisRef.current) {
-        setupSpeechSynthesis();
-      }
-
-      if (speechSynthesisRef.current) {
-        speechSynthesisRef.current.text = text;
-
-        // Set event handlers
-        speechSynthesisRef.current.onstart = () => {
-          setStatus("speaking");
-          listeningRef.current = false;
-        };
-
-        speechSynthesisRef.current.onend = () => {
-          setStatus("idle");
-          // If call is still active, resume listening after a short delay
-          if (isCallActive && !processingRef.current) {
-            setTimeout(() => {
-              startListening();
-            }, 500);
-          }
-        };
-
-        speechSynthesisRef.current.onerror = (event) => {
-          console.error("Speech synthesis error:", event);
-          setStatus("idle");
-          if (isCallActive && !processingRef.current) {
-            startListening();
-          }
-        };
-
-        window.speechSynthesis.speak(speechSynthesisRef.current);
-      }
-    },
-    [isCallActive, setupSpeechSynthesis]
-  );
-
   // Start listening for user speech
   const startListening = useCallback(() => {
     if (
@@ -287,6 +259,54 @@ const EnhancedVoiceChat: React.FC<EnhancedVoiceChatProps> = ({
       console.error("Error starting listening:", error);
     }
   }, []);
+
+  // Speak text using speech synthesis
+  const speakText = useCallback(
+    (text: string) => {
+      if (typeof window === "undefined" || !window.speechSynthesis || !text)
+        return;
+
+      // Cancel any ongoing speech
+      window.speechSynthesis.cancel();
+
+      if (!speechSynthesisRef.current) {
+        setupSpeechSynthesis();
+      }
+
+      if (speechSynthesisRef.current) {
+        // Format the text to remove emoji descriptions
+        const processedText = formatTextForSpeech(text);
+        speechSynthesisRef.current.text = processedText;
+
+        // Set event handlers
+        speechSynthesisRef.current.onstart = () => {
+          setStatus("speaking");
+          listeningRef.current = false;
+        };
+
+        speechSynthesisRef.current.onend = () => {
+          setStatus("idle");
+          // If call is still active, resume listening after a short delay
+          if (isCallActive && !processingRef.current) {
+            setTimeout(() => {
+              startListening();
+            }, 500);
+          }
+        };
+
+        speechSynthesisRef.current.onerror = (event) => {
+          console.error("Speech synthesis error:", event);
+          setStatus("idle");
+          if (isCallActive && !processingRef.current) {
+            startListening();
+          }
+        };
+
+        window.speechSynthesis.speak(speechSynthesisRef.current);
+      }
+    },
+    [isCallActive, setupSpeechSynthesis, startListening]
+  );
 
   // Stop listening and process the recorded audio
   const stopListening = useCallback(() => {
@@ -397,6 +417,7 @@ const EnhancedVoiceChat: React.FC<EnhancedVoiceChatProps> = ({
       onMessageReceived,
       speakText,
       status,
+      startListening,
     ]
   );
 
@@ -448,7 +469,7 @@ const EnhancedVoiceChat: React.FC<EnhancedVoiceChatProps> = ({
         // Send a system message to trigger the assistant
         await addMessageToThread(
           threadId,
-          "Hi, I'd like to start a voice conversation. Please greet me."
+          "System: User has started a voice conversation. Give a brief (20 words or less) greeting and ask how you can help today. Do not mention emoji in your speech."
         );
 
         const messages = await runAssistant(
@@ -552,7 +573,13 @@ const EnhancedVoiceChat: React.FC<EnhancedVoiceChatProps> = ({
 
   // Clean up on unmount
   useEffect(() => {
+    const instanceId = voiceChatInstanceIdRef.current;
+    console.log(`Voice chat instance ${instanceId} mounted`);
+
     return () => {
+      console.log(
+        `Voice chat instance ${instanceId} unmounting, cleaning up resources`
+      );
       endCall();
     };
   }, [endCall]);
@@ -566,17 +593,24 @@ const EnhancedVoiceChat: React.FC<EnhancedVoiceChatProps> = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && handleClose()}>
-      <DialogContent className="sm:max-w-md md:max-w-lg">
-        <DialogHeader>
-          <DialogTitle className="text-center">Voice Conversation</DialogTitle>
+      <DialogContent className="sm:max-w-md md:max-w-lg rounded-xl border-0 shadow-lg p-0 overflow-hidden">
+        <DialogHeader className="bg-blue-500 text-white p-4">
+          <DialogTitle className="text-center text-xl">Voice Chat</DialogTitle>
         </DialogHeader>
 
-        <div className="flex flex-col items-center space-y-6 py-4">
+        <div className="flex flex-col items-center space-y-6 p-6">
           {/* Call Timer */}
           <div className="text-3xl font-bold">{formatTime(callDuration)}</div>
 
+          {/* Audio Visualization */}
+          <div className="h-24 w-full flex items-center justify-center">
+            <AudioWaveform
+              isActive={status === "speaking" || status === "listening"}
+            />
+          </div>
+
           {/* Status Indicators */}
-          <div className="flex flex-col items-center space-y-2">
+          <div className="flex flex-col items-center space-y-2 w-full">
             {status === "listening" && (
               <RecognitionStatus status="listening" text="I'm listening..." />
             )}
@@ -586,13 +620,6 @@ const EnhancedVoiceChat: React.FC<EnhancedVoiceChatProps> = ({
             {status === "speaking" && (
               <RecognitionStatus status="speaking" text={assistantResponse} />
             )}
-          </div>
-
-          {/* Audio Visualization */}
-          <div className="h-16 w-full flex items-center justify-center">
-            <AudioWaveform
-              isActive={status === "speaking" || status === "listening"}
-            />
           </div>
 
           {/* Conversation Transcript */}
@@ -620,41 +647,41 @@ const EnhancedVoiceChat: React.FC<EnhancedVoiceChatProps> = ({
           </div>
 
           {/* Call Controls */}
-          <div className="flex items-center justify-center space-x-4">
+          <div className="flex items-center justify-center space-x-6 mt-4">
             {isCallActive ? (
               <>
                 <Button
                   variant={status === "listening" ? "default" : "outline"}
                   size="icon"
-                  className="h-12 w-12 rounded-full"
+                  className="h-16 w-16 rounded-full"
                   onClick={() =>
                     status === "listening" ? stopListening() : startListening()
                   }
                   disabled={status === "processing" || status === "speaking"}
                 >
                   {status === "listening" ? (
-                    <Mic className="h-5 w-5 text-white" />
+                    <Mic className="h-8 w-8 text-white" />
                   ) : (
-                    <MicOff className="h-5 w-5" />
+                    <MicOff className="h-8 w-8" />
                   )}
                 </Button>
 
                 <Button
                   variant="destructive"
                   size="icon"
-                  className="h-14 w-14 rounded-full"
+                  className="h-16 w-16 rounded-full"
                   onClick={endCall}
                 >
-                  <PhoneOff className="h-6 w-6" />
+                  <PhoneOff className="h-8 w-8" />
                 </Button>
               </>
             ) : (
               <Button
                 onClick={startCall}
-                className="h-14 px-6 rounded-full"
+                className="h-16 px-8 rounded-full"
                 disabled={!threadId || !assistantId}
               >
-                <AudioLines className="h-5 w-5 mr-2" />
+                <AudioLines className="h-6 w-6 mr-2" />
                 Start Voice Chat
               </Button>
             )}

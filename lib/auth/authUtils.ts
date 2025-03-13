@@ -164,3 +164,29 @@ export const deleteUserAccount = async (): Promise<boolean> => {
     throw error;
   }
 };
+
+export const validateAuthSession = async (session: any): Promise<boolean> => {
+  if (!session || !session.user || !session.user.id) {
+    return false;
+  }
+
+  try {
+    // Make a lightweight request to validate the session is still active
+    const response = await fetch("/api/user/profile", {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+
+    // If the response is 401 Unauthorized, the session is invalid
+    if (response.status === 401) {
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error("Error validating session:", error);
+    return false;
+  }
+};

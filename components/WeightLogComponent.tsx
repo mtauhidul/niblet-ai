@@ -1,23 +1,10 @@
-"use client";
-
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import eventEmitter from "@/lib/events";
 import { format, subDays } from "date-fns";
 import { Edit, PlusCircle, Scale, Trash } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+
+// UI Components
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,7 +15,18 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "./ui/alert-dialog";
+import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader } from "./ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./ui/dialog";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
 import { Progress } from "./ui/progress";
 import {
   Select,
@@ -37,6 +35,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
+import { Textarea } from "./ui/textarea";
+
+// Import event emitter for updates
+import eventEmitter from "@/lib/events";
 
 export interface WeightLog {
   id?: string;
@@ -100,7 +102,6 @@ const WeightLogComponent = ({
           );
 
         setWeightLogs(formattedLogs);
-        console.log("Weight logs loaded:", formattedLogs);
       } else {
         toast.error("Failed to load weight logs");
       }
@@ -123,14 +124,14 @@ const WeightLogComponent = ({
   const currentWeightValue = getCurrentWeight();
 
   const calculateProgressPercentage = () => {
-    if (!targetWeight || !startWeight || !currentWeightValue) {
+    if (!targetWeight || !startWeight || startWeight === targetWeight) {
       return 0;
     }
 
-    const totalToLose = startWeight - targetWeight;
+    const totalToLose = Math.abs(startWeight - targetWeight);
     if (totalToLose === 0) return 100; // Already at target
 
-    const amountLost = startWeight - currentWeightValue;
+    const amountLost = Math.abs(startWeight - currentWeightValue);
     const percentage = (amountLost / totalToLose) * 100;
 
     // Ensure the percentage is between 0 and 100
@@ -379,9 +380,16 @@ const WeightLogComponent = ({
             <div className="mb-4">
               <div className="flex justify-between text-sm text-gray-500 mb-1">
                 <span>Progress toward goal</span>
-                <span>{Math.round(progressPercentage)}%</span>
+                <span>
+                  {startWeight !== targetWeight
+                    ? `${Math.round(progressPercentage)}%`
+                    : "Goal reached"}
+                </span>
               </div>
-              <Progress value={progressPercentage} className="h-2" />
+              <Progress
+                value={startWeight !== targetWeight ? progressPercentage : 100}
+                className="h-2"
+              />
               <div className="flex justify-between text-xs text-gray-500 mt-1">
                 <span>Start: {startWeight} lbs</span>
                 <span>Goal: {targetWeight} lbs</span>
@@ -426,6 +434,11 @@ const WeightLogComponent = ({
                         <span className="text-xs text-gray-500 ml-2">
                           {formatDateForDisplay(log.date)}
                         </span>
+                        {log.note && (
+                          <div className="text-xs text-gray-500 mt-1">
+                            {log.note}
+                          </div>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center space-x-1">
@@ -434,6 +447,7 @@ const WeightLogComponent = ({
                         size="sm"
                         className="h-8 w-8 p-0"
                         onClick={() => openEditDialog(log)}
+                        aria-label="Edit weight log"
                       >
                         <Edit className="h-4 w-4" />
                       </Button>
@@ -442,6 +456,7 @@ const WeightLogComponent = ({
                         size="sm"
                         className="h-8 w-8 p-0 text-red-500 hover:text-red-700"
                         onClick={() => setDeletingLogId(log.id || null)}
+                        aria-label="Delete weight log"
                       >
                         <Trash className="h-4 w-4" />
                       </Button>

@@ -1,5 +1,4 @@
-// components/HamburgerMenu.tsx
-"use client";
+// Updated HamburgerMenu.tsx with simplified structure
 
 import { Button } from "@/components/ui/button";
 import {
@@ -10,14 +9,10 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import { PersonalityKey } from "@/lib/assistantService";
 import { signOutFromAll } from "@/lib/auth/authUtils";
 import { clearAllStorage } from "@/lib/ChatHistoryManager";
-import { createOrUpdateUserProfile } from "@/lib/firebase/models/user";
 import {
-  ChevronRight,
   Download,
-  Goal,
   Home,
   LogOut,
   Menu,
@@ -28,20 +23,16 @@ import {
 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { JSX, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Label } from "./ui/label";
 import { Switch } from "./ui/switch";
 
 interface HamburgerMenuProps {
-  currentPersonality?: PersonalityKey;
-  onPersonalityChange?: (personality: PersonalityKey) => void;
+  className?: string;
 }
 
-const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
-  currentPersonality = "best-friend",
-  onPersonalityChange,
-}) => {
+const HamburgerMenu: React.FC<HamburgerMenuProps> = ({ className = "" }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const router = useRouter();
@@ -62,34 +53,6 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
     if (typeof window !== "undefined") {
       localStorage.setItem("darkMode", checked ? "true" : "false");
     }
-  };
-
-  const handlePersonalityChange = async (personality: PersonalityKey) => {
-    if (onPersonalityChange) {
-      onPersonalityChange(personality);
-    }
-
-    // Also update in database if user is logged in
-    if (session?.user?.id) {
-      try {
-        await createOrUpdateUserProfile(session.user.id, {
-          aiPersonality: personality,
-        });
-        toast.success(
-          `AI personality changed to ${personality.replace("-", " ")}`,
-          {
-            duration: 3000,
-            position: "top-center",
-          }
-        );
-      } catch (error) {
-        console.error("Error updating AI personality:", error);
-        toast.error("Failed to update AI personality");
-      }
-    }
-
-    // Close the menu
-    setIsOpen(false);
   };
 
   // Comprehensive sign out function
@@ -159,7 +122,16 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
     setIsOpen(false);
   };
 
-  const menuItems = [
+  // Simplified menu items according to requirements
+  interface MenuItem {
+    label: string;
+    icon: JSX.Element;
+    onClick: () => void | Promise<void>;
+    className?: string;
+    hidden?: boolean;
+  }
+
+  const menuItems: MenuItem[] = [
     {
       label: "Dashboard",
       icon: <Home className="h-5 w-5" />,
@@ -177,18 +149,11 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
       },
     },
     {
-      label: "Goals",
-      icon: <Goal className="h-5 w-5" />,
-      onClick: () => {
-        router.push("/goals");
-        setIsOpen(false);
-      },
-    },
-    {
       label: "Export Data",
       icon: <Download className="h-5 w-5" />,
       onClick: exportData,
     },
+    // Only show Admin option for admin users (add logic to determine admin status)
     {
       label: "Admin",
       icon: <Shield className="h-5 w-5" />,
@@ -196,6 +161,8 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
         router.push("/admin");
         setIsOpen(false);
       },
+      // Uncomment this when admin check is implemented
+      // hidden: !isAdmin,
     },
     // Add logout here in the menu
     {
@@ -203,25 +170,6 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
       icon: <LogOut className="h-5 w-5" />,
       onClick: handleSignOut,
       className: "text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20",
-    },
-  ];
-
-  // AI personality options
-  const personalityOptions = [
-    {
-      key: "best-friend",
-      label: "Best Friend",
-      description: "Warm & Encouraging",
-    },
-    {
-      key: "professional-coach",
-      label: "Professional Coach",
-      description: "Data-Driven & Precise",
-    },
-    {
-      key: "tough-love",
-      label: "Tough Love",
-      description: "Direct & Challenging",
     },
   ];
 
@@ -277,64 +225,30 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
             </div>
             <nav>
               <ul className="space-y-0.5">
-                {menuItems.map((item, index) => (
-                  <li key={index}>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className={`w-full justify-start text-left py-1.5 h-auto group ${
-                        item.className || ""
-                      }`}
-                      onClick={item.onClick}
-                    >
-                      <span className="flex items-center">
-                        <span className="mr-2 text-gray-500 dark:text-gray-400 group-hover:text-primary">
-                          {item.icon}
-                        </span>
-                        <span className="text-sm">{item.label}</span>
-                      </span>
-                      <ChevronRight className="ml-auto h-3 w-3 opacity-50" />
-                    </Button>
-                  </li>
-                ))}
+                {menuItems.map(
+                  (item, index) =>
+                    !item.hidden && (
+                      <li key={index}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className={`w-full justify-start text-left py-1.5 h-auto group ${
+                            item.className || ""
+                          }`}
+                          onClick={item.onClick}
+                        >
+                          <span className="flex items-center">
+                            <span className="mr-2 text-gray-500 dark:text-gray-400 group-hover:text-primary">
+                              {item.icon}
+                            </span>
+                            <span className="text-sm">{item.label}</span>
+                          </span>
+                        </Button>
+                      </li>
+                    )
+                )}
               </ul>
             </nav>
-          </div>
-
-          {/* AI Personality Section */}
-          <div className="mb-4">
-            <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-              AI Personality
-            </div>
-            <div className="space-y-1 rounded-md border p-2">
-              {personalityOptions.map((option) => (
-                <div
-                  key={option.key}
-                  className={`flex items-center p-1.5 cursor-pointer rounded-md transition-colors ${
-                    currentPersonality === option.key
-                      ? "bg-blue-100 dark:bg-blue-900/50"
-                      : "hover:bg-gray-100 dark:hover:bg-gray-800"
-                  }`}
-                  onClick={() =>
-                    handlePersonalityChange(option.key as PersonalityKey)
-                  }
-                >
-                  <div
-                    className={`w-2 h-2 rounded-full mr-2 ${
-                      currentPersonality === option.key
-                        ? "bg-blue-500"
-                        : "bg-gray-300 dark:bg-gray-600"
-                    }`}
-                  ></div>
-                  <div className="flex-1">
-                    <div className="font-medium text-sm">{option.label}</div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400">
-                      {option.description}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
           </div>
         </div>
 
