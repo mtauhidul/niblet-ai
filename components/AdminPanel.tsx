@@ -1,4 +1,6 @@
 // components/AdminPanel.tsx
+// Modified to remove redundant admin checks
+
 "use client";
 
 import { Button } from "@/components/ui/button";
@@ -42,7 +44,7 @@ import {
   Trash,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import HamburgerMenu from "./HamburgerMenu";
 
@@ -91,16 +93,6 @@ const AdminPanel: React.FC = () => {
     "saturday",
     "sunday",
   ];
-
-  const isAdmin = true; // Hardcoded for now
-
-  // Redirect non-admin users
-  useEffect(() => {
-    if (!isAdmin) {
-      router.push("/dashboard");
-      toast.error("You don't have permission to access the admin panel");
-    }
-  }, [isAdmin, router]);
 
   // Handle personality edit
   const handlePersonalityChange = (
@@ -297,10 +289,6 @@ const AdminPanel: React.FC = () => {
       setIsLoading(false);
     }
   };
-
-  if (!isAdmin) {
-    return null; // Don't render anything if not admin
-  }
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-2 md:p-4 lg:p-6 max-w-[600px] mx-auto">

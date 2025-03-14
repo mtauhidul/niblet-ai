@@ -48,6 +48,7 @@ export interface UserProfile {
   // New fields
   receiveNotifications?: boolean;
   preferredMealFrequency?: string;
+  isAdmin: boolean | null;
 }
 
 // Create or update user

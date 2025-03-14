@@ -47,6 +47,10 @@ export default function ProfilePage() {
     preferredMealFrequency: "3",
   });
 
+  useEffect(() => {
+    console.log("Profile data:", profileData);
+  }, [profileData]);
+
   // Set mounted state to prevent hydration issues
   useEffect(() => {
     setMounted(true);

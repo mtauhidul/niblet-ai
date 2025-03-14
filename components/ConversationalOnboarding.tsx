@@ -14,9 +14,15 @@ import { formatChatText } from "@/lib/utils";
 import { Mic, MicOff, Send } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import OpenAI from "openai";
 import { useEffect, useRef, useState } from "react";
 import { Input } from "./ui/input";
 import { Progress } from "./ui/progress";
+
+const openai = new OpenAI({
+  apiKey: process.env.NEXT_PUBLIC_OPENAI_API_KEY,
+  dangerouslyAllowBrowser: true,
+});
 
 interface Message {
   id: string;
@@ -54,7 +60,8 @@ const ConversationalOnboarding = () => {
   const [isInitializing, setIsInitializing] = useState(true);
   const [extractedData, setExtractedData] = useState<ExtractedUserData>({});
   const [onboardingStep, setOnboardingStep] = useState(0);
-  const [isProfileSaving, setIsProfileSaving] = useState(false); // New state to prevent double saving
+  const [isProfileSaving, setIsProfileSaving] = useState(false);
+  const [isAiExtractionEnabled, setIsAiExtractionEnabled] = useState(true);
 
   const messageEndRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -152,24 +159,21 @@ const ConversationalOnboarding = () => {
 
           // Calculate target calories based on profile data
           let targetCalories = 0;
-
           if (
             extractedData.startingWeight &&
             extractedData.height &&
             extractedData.age
           ) {
-            // Simple BMR calculation based on weight (in lbs), height (in inches), and age
-            // Using a modified Harris-Benedict equation
+            // Very simple BMR estimate (Harris-Benedict style)
             const weight = extractedData.startingWeight;
             const height = extractedData.height;
             const age = extractedData.age;
 
-            // Base BMR calculation (very simplified)
             const bmr =
               10 * (weight * 0.453592) + 6.25 * (height * 2.54) - 5 * age;
 
             // Activity multiplier
-            let activityMultiplier = 1.2; // Default sedentary
+            let activityMultiplier = 1.2; // default sedentary
             if (extractedData.activityLevel) {
               const level = extractedData.activityLevel.toLowerCase();
               if (level.includes("lightly active")) activityMultiplier = 1.375;
@@ -181,27 +185,26 @@ const ConversationalOnboarding = () => {
                 activityMultiplier = 1.9;
             }
 
-            // Adjust for weight goal
             targetCalories = Math.round(bmr * activityMultiplier);
 
-            // If weight loss goal, create a moderate deficit
+            // If user wants to lose weight, subtract ~500 for 1 lb/week
             if (
               extractedData.targetWeight &&
               extractedData.targetWeight < extractedData.startingWeight
             ) {
-              targetCalories -= 500; // Standard deficit for ~1lb/week loss
+              targetCalories -= 500;
             }
           } else {
-            // Default if we can't calculate
+            // Fallback
             targetCalories = 2000;
           }
 
-          // Calculate macros based on target calories
-          const targetProtein = Math.round((targetCalories * 0.3) / 4); // 30% protein
-          const targetFat = Math.round((targetCalories * 0.3) / 9); // 30% fat
-          const targetCarbs = Math.round((targetCalories * 0.4) / 4); // 40% carbs
+          // Simple macro split
+          const targetProtein = Math.round((targetCalories * 0.3) / 4);
+          const targetFat = Math.round((targetCalories * 0.3) / 9);
+          const targetCarbs = Math.round((targetCalories * 0.4) / 4);
 
-          // Create a new thread for the main chat (separate from onboarding)
+          // Create a new thread for main chat
           const mainThreadId = await createThread();
           if (!mainThreadId) throw new Error("Failed to create main thread");
 
@@ -209,13 +212,12 @@ const ConversationalOnboarding = () => {
           if (!mainAssistantId)
             throw new Error("Failed to create main assistant");
 
-          // Format target date if it exists
+          // Attempt to format target date
           let formattedTargetDate = null;
           if (extractedData.targetDate) {
             try {
-              // Convert descriptive date to a proper date
-              if (extractedData.targetDate.includes("in")) {
-                // Handle "in X weeks/months/years" format
+              // Handle "in X weeks/months/years" or direct date parse
+              if (extractedData.targetDate.toLowerCase().includes("in")) {
                 const matches = /in\s+(\d+)\s+(days|weeks|months|years)/i.exec(
                   extractedData.targetDate
                 );
@@ -237,33 +239,33 @@ const ConversationalOnboarding = () => {
                   formattedTargetDate = now.toISOString();
                 }
               } else {
-                // Try to parse other date formats
+                // Try standard date parse
                 const date = new Date(extractedData.targetDate);
                 if (!isNaN(date.getTime())) {
                   formattedTargetDate = date.toISOString();
                 }
               }
-            } catch (error) {
-              console.error("Error parsing target date:", error);
-              // Keep the original string if parsing fails
+            } catch (err) {
+              console.error("Error parsing target date:", err);
+              // fallback
               formattedTargetDate = extractedData.targetDate;
             }
           }
 
-          // Save all the onboarding data to user profile
+          // Build profile data
           const profileData: Record<string, any> = {
             onboardingThreadId: threadId,
             onboardingCompleted: true,
-            threadId: mainThreadId, // Set the main thread ID
-            assistantId: mainAssistantId, // Set the main assistant ID
-            aiPersonality: "best-friend", // Start with best-friend personality
-            targetCalories: targetCalories,
-            targetProtein: targetProtein,
-            targetCarbs: targetCarbs,
-            targetFat: targetFat,
+            threadId: mainThreadId,
+            assistantId: mainAssistantId,
+            aiPersonality: "best-friend",
+            targetCalories,
+            targetProtein,
+            targetCarbs,
+            targetFat,
           };
 
-          // Only add fields that have actual values
+          // Basic fields
           if (extractedData.name) profileData.name = extractedData.name;
           if (extractedData.age !== null && extractedData.age !== undefined)
             profileData.age = extractedData.age;
@@ -271,73 +273,77 @@ const ConversationalOnboarding = () => {
           if (
             extractedData.startingWeight !== null &&
             extractedData.startingWeight !== undefined
-          )
+          ) {
             profileData.startingWeight = extractedData.startingWeight;
-          if (
-            extractedData.targetWeight !== null &&
-            extractedData.targetWeight !== undefined
-          )
-            profileData.targetWeight = extractedData.targetWeight;
+          }
           if (
             extractedData.height !== null &&
             extractedData.height !== undefined
-          )
+          ) {
             profileData.height = extractedData.height;
-          if (extractedData.activityLevel)
+          }
+          if (extractedData.activityLevel) {
             profileData.activityLevel = extractedData.activityLevel;
+          }
+
+          // Ensure target weight is saved
+          if (
+            extractedData.targetWeight !== null &&
+            extractedData.targetWeight !== undefined
+          ) {
+            profileData.targetWeight = extractedData.targetWeight;
+          }
+
+          // Ensure target date is saved
+          if (extractedData.targetDate) {
+            profileData.targetDate =
+              formattedTargetDate || extractedData.targetDate;
+          }
+
+          // Dietary preferences
           if (
             extractedData.dietaryPreferences &&
             extractedData.dietaryPreferences.length > 0
-          )
+          ) {
             profileData.dietaryPreferences = extractedData.dietaryPreferences;
-          if (formattedTargetDate) profileData.targetDate = formattedTargetDate;
+          }
 
-          // Set goal type only if there's a target weight
-          if (extractedData.targetWeight) profileData.goalType = "Weight Loss";
+          // If we have a target weight, set a goal type
+          if (profileData.targetWeight) {
+            profileData.goalType = "Weight Loss";
+          }
 
-          console.log("Saving profile data:", profileData);
+          console.log("Final profile data to save:", profileData);
 
-          // Now send only the fields with actual values to Firestore
+          // Save profile
           if (session?.user?.id) {
             await createOrUpdateUserProfile(session.user.id, profileData);
           } else {
             throw new Error("User ID is not available");
           }
-
           console.log("Profile successfully saved!");
 
-          // Initialize the main chat thread with a welcome and prompt for first meal
+          // Initialize main chat with a system message (but don’t call runAssistant again)
           await addMessageToThread(
             mainThreadId,
             `System: Initialize with this user info: 
-          Name: ${extractedData.name || "User"}, 
-          Current Weight: ${extractedData.startingWeight || "Not provided"}, 
-          Target Weight: ${extractedData.targetWeight || "Not provided"}, 
-          Height: ${extractedData.height || "Not provided"}, 
-          Age: ${extractedData.age || "Not provided"},
-          Activity Level: ${extractedData.activityLevel || "Not provided"},
-          Dietary Preferences: ${
-            extractedData.dietaryPreferences
-              ? extractedData.dietaryPreferences.join(", ")
-              : "None"
-          }.
-          
-          Welcome them to the app and ask them what they've eaten today so you can log their first meal. Be brief and friendly.`
+Name: ${extractedData.name || "User"}, 
+Current Weight: ${extractedData.startingWeight || "Not provided"}, 
+Target Weight: ${extractedData.targetWeight || "Not provided"}, 
+Height: ${extractedData.height || "Not provided"}, 
+Age: ${extractedData.age || "Not provided"},
+Activity Level: ${extractedData.activityLevel || "Not provided"},
+Dietary Preferences: ${
+              extractedData.dietaryPreferences
+                ? extractedData.dietaryPreferences.join(", ")
+                : "None"
+            }.
+
+Welcome them to the app and ask them what they've eaten today so you can log their first meal. Be brief and friendly.`
           );
 
-          // Run the assistant once to generate the welcome message
-          await runAssistant(
-            mainThreadId,
-            mainAssistantId,
-            "best-friend",
-            async () => {
-              return { success: true, message: "Initial setup complete" };
-            }
-          );
-
-          // Wait a moment to show the final message
+          // Redirect after a short delay
           setTimeout(() => {
-            // Redirect to dashboard
             router.push("/dashboard");
           }, 2000);
         } catch (error) {
@@ -345,7 +351,7 @@ const ConversationalOnboarding = () => {
           setError(
             "There was a problem saving your profile. Please try again."
           );
-          setIsProfileSaving(false); // Reset if there's an error
+          setIsProfileSaving(false);
         }
       };
 
@@ -360,15 +366,16 @@ const ConversationalOnboarding = () => {
     isProfileSaving,
   ]);
 
-  // Process information extraction through the AI assistant
+  /**
+   * Handle the tool calls (extract_user_data).
+   */
   const handleToolCall = async (toolName: string, toolArgs: any) => {
     if (toolName === "extract_user_data") {
-      // Process extracted data
+      // Merge with existing data
       const newData = {
         ...extractedData,
         ...toolArgs,
       };
-
       setExtractedData(newData);
       setOnboardingStep(calculateCompletionStep(newData));
 
@@ -385,31 +392,30 @@ const ConversationalOnboarding = () => {
     };
   };
 
-  // Calculate the completion step based on extracted data
+  /**
+   * Calculate the onboarding step (max 6).
+   */
   const calculateCompletionStep = (data: ExtractedUserData): number => {
     let step = 0;
-
     if (data.name) step++;
     if (data.startingWeight) step++;
     if (data.height && data.age) step++;
     if (data.activityLevel) step++;
     if (data.dietaryPreferences) step++;
-    if (data.targetWeight) step++; // Modified to only require targetWeight
-
+    if (data.targetWeight) step++;
     return Math.min(step, 6);
   };
 
-  // Auto scroll to bottom of chat
+  // Auto-scroll to the bottom
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
 
-  // Check for completion keywords in assistant messages
+  // Check if the last assistant message indicates onboarding is complete
   useEffect(() => {
     if (messages.length > 0) {
       const lastMessage = messages[messages.length - 1];
       if (lastMessage.role === "assistant") {
-        // Check if the message indicates onboarding is complete
         const completionPhrases = [
           "all set",
           "profile is complete",
@@ -420,10 +426,10 @@ const ConversationalOnboarding = () => {
           "that's all i need",
           "setting up your profile",
         ];
+        const msgLower = lastMessage.content.toLowerCase();
 
-        const messageText = lastMessage.content.toLowerCase();
         const isOnboardingComplete = completionPhrases.some((phrase) =>
-          messageText.includes(phrase)
+          msgLower.includes(phrase)
         );
 
         if (isOnboardingComplete || onboardingStep >= 6) {
@@ -433,92 +439,84 @@ const ConversationalOnboarding = () => {
     }
   }, [messages, onboardingStep]);
 
-  // Send message to assistant
-  const handleSendMessage = async () => {
-    if (!inputValue.trim() || !threadId || !assistantId || isTyping) return;
-
-    // Format the input text
-    const formattedText = formatChatText(inputValue);
-
-    // Add user message to UI
-    const userMessage: Message = {
-      id: `user-${Date.now()}`,
-      role: "user",
-      content: formattedText,
-      timestamp: new Date(),
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
-    setInputValue("");
-    setError(null);
+  /**
+   * AI-based data extraction from messages.
+   */
+  async function extractDataWithAI(
+    msgs: Message[]
+  ): Promise<ExtractedUserData> {
+    const conversationText = msgs
+      .map((msg) => `${msg.role}: ${msg.content}`)
+      .join("\n");
 
     try {
-      // Send message to thread
-      setIsTyping(true);
-      const messageAdded = await addMessageToThread(threadId, formattedText);
+      const response = await openai.chat.completions.create({
+        model: "gpt-3.5-turbo",
+        messages: [
+          {
+            role: "system",
+            content: `You are a data extraction assistant. Extract the following information from the conversation text:
+            - name
+            - age (number)
+            - gender
+            - startingWeight (lbs, number)
+            - targetWeight (lbs, number)
+            - height (inches, number)
+            - activityLevel
+            - dietaryPreferences (array)
+            - allergies (array)
+            - targetDate (date or timeframe)
+            
+            If the user mentions losing X lbs from current weight, compute targetWeight = currentWeight - X.
+            Return only valid JSON with those fields. If unsure, omit the field.`,
+          },
+          {
+            role: "user",
+            content: conversationText,
+          },
+        ],
+        temperature: 0.1,
+      });
 
-      if (!messageAdded) {
-        throw new Error("Failed to send message");
-      }
-
-      // Run the assistant to get a response
-      const assistantMessages = await runAssistant(
-        threadId,
-        assistantId,
-        "professional-coach",
-        handleToolCall
-      );
-
-      if (assistantMessages && assistantMessages.length > 0) {
-        // Get the latest message
-        const latestMessage = assistantMessages[assistantMessages.length - 1];
-
-        // Add assistant's response to UI
-        const assistantMessage: Message = {
-          id: latestMessage.id,
-          role: "assistant",
-          content: latestMessage.content,
-          timestamp: latestMessage.createdAt,
-        };
-
-        setMessages((prev) => [...prev, assistantMessage]);
-
-        // Extract data from the message for progress tracking
-        extractDataFromMessages([...messages, userMessage, assistantMessage]);
+      try {
+        const content = response.choices[0].message?.content;
+        if (!content) {
+          throw new Error("No content in response");
+        }
+        const extracted = JSON.parse(content) as ExtractedUserData;
+        return extracted;
+      } catch (parseError) {
+        console.error("Error parsing AI response:", parseError);
+        return {};
       }
     } catch (error) {
-      console.error("Failed to send message:", error);
-      setError("There was an error processing your message. Please try again.");
-    } finally {
-      setIsTyping(false);
+      console.error("Error extracting data with AI:", error);
+      return {};
     }
-  };
+  }
 
-  // Extract data from messages to track completion
-  const extractDataFromMessages = (msgs: Message[]) => {
+  function fallbackExtraction(msgs: Message[]): ExtractedUserData {
     const allText = msgs.map((msg) => msg.content).join(" ");
     const data: ExtractedUserData = {};
 
-    // Extract name - improved to handle more patterns
+    // Name
     const nameMatch = allText.match(
-      /my name is ([A-Za-z]+)|i'm ([A-Za-z]+)|i am ([A-Za-z]+)|name:? ([A-Za-z]+)/i
+      /my name is ([A-Za-z\s]+)|i'm ([A-Za-z\s]+)|i am ([A-Za-z\s]+)|name:? ([A-Za-z\s]+)/i
     );
     if (nameMatch) {
-      // Find the first non-undefined capture group
       for (let i = 1; i < nameMatch.length; i++) {
         if (nameMatch[i]) {
-          data.name = nameMatch[i];
+          data.name = nameMatch[i].trim();
           break;
         }
       }
     }
 
-    // Extract weight with improved pattern matching
+    // Starting weight
     const weightMatch = allText.match(
       /(\d+\.?\d*)\s*(kg|kilograms|pounds|lbs)|weight:?\s*(\d+\.?\d*)|weigh\s*(\d+\.?\d*)|current weight:?\s*(\d+\.?\d*)/i
     );
     if (weightMatch) {
-      // Find first non-undefined number in capture groups
       for (let i = 1; i < weightMatch.length; i++) {
         if (weightMatch[i] && !isNaN(parseFloat(weightMatch[i]))) {
           data.startingWeight = parseFloat(weightMatch[i]);
@@ -527,12 +525,11 @@ const ConversationalOnboarding = () => {
       }
     }
 
-    // Extract height with improved pattern
+    // Height
     const heightMatch = allText.match(
       /(\d+\.?\d*)\s*(cm|centimeters|meters|m|feet|ft|foot|inches|in|'|")|height:?\s*(\d+\.?\d*)|tall:?\s*(\d+\.?\d*)/i
     );
     if (heightMatch) {
-      // Find first non-undefined number in capture groups
       for (let i = 1; i < heightMatch.length; i++) {
         if (heightMatch[i] && !isNaN(parseFloat(heightMatch[i]))) {
           data.height = parseFloat(heightMatch[i]);
@@ -541,12 +538,11 @@ const ConversationalOnboarding = () => {
       }
     }
 
-    // Extract age with improved pattern
+    // Age
     const ageMatch = allText.match(
       /(\d+)\s*(years|year|yr|y\.o\.|years old)|age:?\s*(\d+)|i'm\s*(\d+)\s*(years|year|yr)/i
     );
     if (ageMatch) {
-      // Find first non-undefined number in capture groups
       for (let i = 1; i < ageMatch.length; i++) {
         if (ageMatch[i] && !isNaN(parseInt(ageMatch[i]))) {
           data.age = parseInt(ageMatch[i]);
@@ -555,7 +551,7 @@ const ConversationalOnboarding = () => {
       }
     }
 
-    // Extract activity level
+    // Activity level
     const activityLevels = [
       "sedentary",
       "lightly active",
@@ -570,7 +566,7 @@ const ConversationalOnboarding = () => {
       }
     }
 
-    // Extract dietary preferences
+    // Dietary preferences
     const diets = [
       "vegetarian",
       "vegan",
@@ -582,41 +578,51 @@ const ConversationalOnboarding = () => {
       "dairy-free",
       "omnivore",
     ];
-    const dietPreferences = [];
+    const foundDiets: string[] = [];
     for (const diet of diets) {
       if (allText.toLowerCase().includes(diet)) {
-        dietPreferences.push(diet);
+        foundDiets.push(diet);
       }
     }
-    if (dietPreferences.length > 0) {
-      data.dietaryPreferences = dietPreferences;
+    if (foundDiets.length > 0) {
+      data.dietaryPreferences = foundDiets;
     }
 
-    // Extract target weight with improved pattern
+    // Target weight
     const targetWeightMatch = allText.match(
-      /target weight:?\s*(\d+\.?\d*)|goal:?\s*(\d+\.?\d*)\s*(kg|kilograms|pounds|lbs)|reach:?\s*(\d+\.?\d*)|get down to:?\s*(\d+\.?\d*)|lose weight to:?\s*(\d+\.?\d*)|goal weight:?\s*(\d+\.?\d*)/i
+      /(?:target|goal|aim for|want to reach|want to weigh|target weight|goal weight|would like to be|trying to reach|get down to|drop to|lose to|weight goal of|reduce to|aiming for|desired weight of|ideal weight of)\s*[:]?(\d+\.?\d+)/i
     );
-    if (targetWeightMatch) {
-      // Find first non-undefined number in capture groups
-      for (let i = 1; i < targetWeightMatch.length; i++) {
-        if (targetWeightMatch[i] && !isNaN(parseFloat(targetWeightMatch[i]))) {
-          data.targetWeight = parseFloat(targetWeightMatch[i]);
-          break;
-        }
+    if (targetWeightMatch && targetWeightMatch[1]) {
+      data.targetWeight = parseFloat(targetWeightMatch[1]);
+    } else {
+      // Or "lose X lbs" from current
+      const loseWeightMatch = allText.match(
+        /lose\s+(\d+\.?\d*)\s*(?:lbs?|pounds?|kilos?|kg)/i
+      );
+      if (loseWeightMatch && loseWeightMatch[1] && data.startingWeight) {
+        data.targetWeight =
+          data.startingWeight - parseFloat(loseWeightMatch[1]);
       }
     }
 
-    // Extract target date with expanded patterns
-    const dateRegex =
-      /by\s+(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|september|oct|october|nov|november|dec|december)\s+(\d{1,2})(?:st|nd|rd|th)?(?:\s*,\s*(\d{4}))?|by\s+(\d{1,2})(?:st|nd|rd|th)?\s+(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|september|oct|october|nov|november|dec|december)(?:\s*,\s*(\d{4}))?|in\s+(\d+)\s+(days|weeks|months|years)|by\s+([a-zA-Z]+)/i;
-
-    const dateMatch = allText.match(dateRegex);
-    if (dateMatch) {
-      // Store the raw target date string
-      data.targetDate = dateMatch[0];
+    // Target date
+    const datePatterns = [
+      // e.g. "by January 20th, 2025"
+      /(?:by|before|until)\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:,\s*(\d{4}))?/i,
+      // e.g. "by 01/20/2025"
+      /(?:by|before|until)\s+(\d{1,2})\/(\d{1,2})\/(\d{2,4})/i,
+      // relative: "in 3 months"
+      /in\s+(\d+)\s+(days?|weeks?|months?|years?)/i,
+    ];
+    for (const pattern of datePatterns) {
+      const match = allText.match(pattern);
+      if (match) {
+        data.targetDate = match[0];
+        break;
+      }
     }
 
-    // Special case for gender extraction
+    // Gender
     if (allText.match(/\b(male|man|guy|boy)\b/i)) {
       data.gender = "male";
     } else if (allText.match(/\b(female|woman|girl|lady)\b/i)) {
@@ -625,10 +631,9 @@ const ConversationalOnboarding = () => {
       data.gender = "non-binary";
     }
 
-    // Extract allergies
+    // Allergies
     const allergiesMatch = allText.match(/allerg(y|ies|ic)\s+to\s+([^\.]+)/i);
     if (allergiesMatch && allergiesMatch[2]) {
-      // Split allergies by commas and clean up
       const allergiesList = allergiesMatch[2]
         .split(/,|and/)
         .map((item) => item.trim())
@@ -639,15 +644,99 @@ const ConversationalOnboarding = () => {
       }
     }
 
-    // Update extracted data
+    return data;
+  }
+
+  async function extractDataFromMessages(msgs: Message[]) {
+    let extractedDataResult: ExtractedUserData = {};
+
+    if (isAiExtractionEnabled) {
+      try {
+        const aiData = await extractDataWithAI(msgs);
+        if (Object.keys(aiData).length > 0) {
+          extractedDataResult = aiData;
+        } else {
+          extractedDataResult = fallbackExtraction(msgs);
+        }
+      } catch (error) {
+        console.error("AI extraction failed, falling back to regex:", error);
+        extractedDataResult = fallbackExtraction(msgs);
+      }
+    } else {
+      extractedDataResult = fallbackExtraction(msgs);
+    }
+
     setExtractedData((prev) => {
-      const updated = { ...prev, ...data };
+      const updated = { ...prev, ...extractedDataResult };
       setOnboardingStep(calculateCompletionStep(updated));
       return updated;
     });
+  }
+
+  /**
+   * Handle sending text input to the assistant.
+   */
+  const handleSendMessage = async () => {
+    if (!inputValue.trim() || !threadId || !assistantId || isTyping) return;
+
+    const formattedText = formatChatText(inputValue);
+
+    // Add user message
+    const userMessage: Message = {
+      id: `user-${Date.now()}`,
+      role: "user",
+      content: formattedText,
+      timestamp: new Date(),
+    };
+
+    setMessages((prev) => [...prev, userMessage]);
+    setInputValue("");
+    setError(null);
+
+    try {
+      setIsTyping(true);
+      const messageAdded = await addMessageToThread(threadId, formattedText);
+      if (!messageAdded) {
+        throw new Error("Failed to send message");
+      }
+
+      // Get assistant response
+      const assistantMessages = await runAssistant(
+        threadId,
+        assistantId,
+        "professional-coach",
+        handleToolCall
+      );
+      if (assistantMessages && assistantMessages.length > 0) {
+        const latestMessage = assistantMessages[assistantMessages.length - 1];
+        const assistantMessage: Message = {
+          id: latestMessage.id,
+          role: "assistant",
+          content: latestMessage.content,
+          timestamp: latestMessage.createdAt,
+        };
+        setMessages((prev) => [...prev, assistantMessage]);
+
+        // Extract data
+        await extractDataFromMessages([
+          ...messages,
+          userMessage,
+          assistantMessage,
+        ]);
+      }
+    } catch (error) {
+      console.error("Failed to send message:", error);
+      setError("There was an error processing your message. Please try again.");
+    } finally {
+      setIsTyping(false);
+    }
+
+    // If user was recording, stop
+    if (mediaRecorder && mediaRecorder.state === "recording") {
+      stopRecording();
+    }
   };
 
-  // Handle key press (Enter to send)
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -655,7 +744,9 @@ const ConversationalOnboarding = () => {
     }
   };
 
-  // Voice recording functions
+  /**
+   * Voice recording logic.
+   */
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -677,20 +768,16 @@ const ConversationalOnboarding = () => {
 
           // Transcribe audio
           const transcribedText = await transcribeAudio(audioBlob);
-
           if (!transcribedText) {
             throw new Error("Failed to transcribe audio");
           }
 
-          // Apply formatting to ensure 'i' is capitalized
           const formattedText = formatChatText(transcribedText);
-
-          // Show transcribed text in input
+          // Put it in input (optional) or send directly
           setInputValue(formattedText);
 
-          // If we have the thread and assistant IDs, automatically send the message
+          // Auto-send the transcribed text
           if (threadId && assistantId) {
-            // Add user message to UI
             const userMessage: Message = {
               id: `user-${Date.now()}`,
               role: "user",
@@ -701,41 +788,32 @@ const ConversationalOnboarding = () => {
             setMessages((prev) => [...prev, userMessage]);
             setInputValue("");
 
-            // Send message to thread
             const messageAdded = await addMessageToThread(
               threadId,
               formattedText
             );
-
             if (!messageAdded) {
               throw new Error("Failed to send message");
             }
 
-            // Run the assistant to get a response
             const assistantMessages = await runAssistant(
               threadId,
               assistantId,
               "professional-coach",
               handleToolCall
             );
-
             if (assistantMessages && assistantMessages.length > 0) {
-              // Get the latest message
               const latestMessage =
                 assistantMessages[assistantMessages.length - 1];
-
-              // Add assistant's response to UI
               const assistantMessage: Message = {
                 id: latestMessage.id,
                 role: "assistant",
                 content: latestMessage.content,
                 timestamp: latestMessage.createdAt,
               };
-
               setMessages((prev) => [...prev, assistantMessage]);
 
-              // Extract data from the message for progress tracking
-              extractDataFromMessages([
+              await extractDataFromMessages([
                 ...messages,
                 userMessage,
                 assistantMessage,
@@ -750,7 +828,6 @@ const ConversationalOnboarding = () => {
         }
       };
 
-      // Start recording
       recorder.start();
       setMediaRecorder(recorder);
       setIsRecording(true);
@@ -767,7 +844,6 @@ const ConversationalOnboarding = () => {
       mediaRecorder.stop();
       setIsRecording(false);
 
-      // Stop all audio tracks
       if (mediaRecorder.stream) {
         mediaRecorder.stream.getTracks().forEach((track) => track.stop());
       }
@@ -813,19 +889,17 @@ const ConversationalOnboarding = () => {
         <Progress value={(onboardingStep / 6) * 100} className="h-2" />
       </div>
 
-      {/* Chat Container - Fixed max height */}
+      {/* Chat Container */}
       <div
         className="flex-1 overflow-y-auto p-4 space-y-4"
         style={{ maxHeight: "calc(100vh - 200px)" }}
       >
-        {/* Error message */}
         {error && (
           <div className="mx-auto bg-red-100 dark:bg-red-900 p-3 rounded-lg text-center">
             {error}
           </div>
         )}
 
-        {/* Chat messages */}
         {messages.map((msg) => (
           <div
             key={msg.id}
@@ -841,7 +915,6 @@ const ConversationalOnboarding = () => {
           </div>
         ))}
 
-        {/* Loading indicator */}
         {isTyping && (
           <div className="flex space-x-2 mr-auto bg-gray-200 dark:bg-gray-700 rounded-lg p-3">
             <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"></div>
@@ -856,11 +929,10 @@ const ConversationalOnboarding = () => {
           </div>
         )}
 
-        {/* Invisible element to scroll to */}
         <div ref={messageEndRef} />
       </div>
 
-      {/* Input Area or Complete Button */}
+      {/* Input or Finalizing */}
       <div className="p-4 border-t dark:border-gray-800">
         {isComplete ? (
           <div className="text-center p-4">
@@ -869,7 +941,7 @@ const ConversationalOnboarding = () => {
               Creating and warming up your account...
             </p>
             <p className="text-gray-500 dark:text-gray-400">
-              You'll be redirected to your dashboard in a moment
+              You’ll be redirected to your dashboard in a moment
             </p>
           </div>
         ) : (

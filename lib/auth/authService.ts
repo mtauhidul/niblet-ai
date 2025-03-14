@@ -18,6 +18,34 @@ import {
 import { updateDoc } from "firebase/firestore";
 
 /**
+ * Get a user profile by ID from Firestore
+ * @param userId The ID of the user to fetch
+ * @returns Promise with the user profile data or null if not found
+ */
+export async function getUserProfileById(
+  userId: string
+): Promise<UserProfile | null> {
+  try {
+    const userProfileRef = doc(db, "userProfiles", userId);
+    const userProfileSnap = await getDoc(userProfileRef);
+
+    if (userProfileSnap.exists()) {
+      const data = userProfileSnap.data();
+      return {
+        ...(data as UserProfile),
+        id: userProfileSnap.id,
+        userId: data.userId,
+      };
+    }
+
+    return null;
+  } catch (error) {
+    console.error("Error fetching user profile:", error);
+    return null;
+  }
+}
+
+/**
  * Update a user profile in Firestore
  * @param userId The ID of the user to update
  * @param data The profile data to update
@@ -192,33 +220,5 @@ export async function createOAuthUser(
   } catch (error) {
     console.error("Error creating OAuth user:", error);
     throw error;
-  }
-}
-
-/**
- * Get a user profile by ID from Firestore
- * @param userId The ID of the user to fetch
- * @returns Promise with the user profile data or null if not found
- */
-export async function getUserProfileById(
-  userId: string
-): Promise<UserProfile | null> {
-  try {
-    const userProfileRef = doc(db, "userProfiles", userId);
-    const userProfileSnap = await getDoc(userProfileRef);
-
-    if (userProfileSnap.exists()) {
-      const data = userProfileSnap.data();
-      return {
-        ...(data as UserProfile),
-        id: userProfileSnap.id,
-        userId: data.userId,
-      };
-    }
-
-    return null;
-  } catch (error) {
-    console.error("Error fetching user profile:", error);
-    return null;
   }
 }
