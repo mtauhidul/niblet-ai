@@ -1,4 +1,4 @@
-// Updated Profile Page with reorganized sections according to requirements
+// app/profile/page.tsx
 "use client";
 
 import DeleteAccountSection from "@/components/DeleteAccountSection";
@@ -47,10 +47,6 @@ export default function ProfilePage() {
     preferredMealFrequency: "3",
   });
 
-  useEffect(() => {
-    console.log(profileData);
-  }, [profileData]);
-
   // Set mounted state to prevent hydration issues
   useEffect(() => {
     setMounted(true);
@@ -73,7 +69,6 @@ export default function ProfilePage() {
       }));
       fetchUserProfile();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, session, mounted]);
 
   const fetchUserProfile = useCallback(async () => {
@@ -112,7 +107,6 @@ export default function ProfilePage() {
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-    console.log(name, value);
     setProfileData((prev) => ({ ...prev, [name]: value }));
   };
 
@@ -459,17 +453,15 @@ export default function ProfilePage() {
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label>Height</Label>
-                  <HeightSelector
-                    initialHeight={
-                      profileData.height
-                        ? parseInt(profileData.height)
-                        : undefined
-                    }
-                    onChange={handleHeightChange}
-                  />
-                </div>
+                {/* Height selector now uses the dropdown component */}
+                <HeightSelector
+                  initialHeight={
+                    profileData.height
+                      ? parseInt(profileData.height)
+                      : undefined
+                  }
+                  onChange={handleHeightChange}
+                />
               </CardContent>
             </Card>
           </TabsContent>

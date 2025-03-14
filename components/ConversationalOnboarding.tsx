@@ -81,11 +81,11 @@ const ConversationalOnboarding = () => {
           "You are helping a new user set up their profile for a nutrition and health app. " +
             "Start by greeting the user with 'Hi, I'm niblet! I'll be helping you set up your goal and kick off your calorie-tracking journey. First, what's your name?' " +
             "Then follow this exact sequence: " +
-            "1. After they provide their name, say 'Nice to meet you, [Name]! What's your current weight?' " +
-            "2. After weight, ask 'Great! Now, could you tell me your height and age?' If they provide only one, ask for the missing value. " +
+            "1. After they provide their name, say 'Nice to meet you, [Name]! What's your current weight(lbs)?' " +
+            "2. After weight, ask 'Great! Now, could you tell me your height(x'y\") and age(years)?' If they provide only one, ask for the missing value. " +
             "3. Then ask 'Tell me about your daily activity. Do you exercise regularly or have a more sedentary routine?' " +
             "4. Next, ask 'Do you follow any particular diet or have specific dietary preferences?' " +
-            "5. Finally, ask 'What's your weight loss goal and by what date would you like to reach that goal?' If they provide only one, ask for the missing value. " +
+            "5. Finally, ask 'What's your weight loss goal(lbs) and by what date(mm/dd/yyyy) would you like to reach that goal?' If they provide only one, ask for the missing value. " +
             "Once all information is collected, inform them you're setting up their profile and thank them for the information."
         );
 
@@ -796,7 +796,7 @@ const ConversationalOnboarding = () => {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-200 max-w-3xl mx-auto rounded-lg shadow-lg">
+    <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-200 max-w-[600px] mx-auto rounded-lg shadow-lg">
       {/* Header */}
       <header className="p-4 border-b dark:border-gray-800 flex justify-center items-center">
         <div className="text-2xl font-bold">

@@ -914,14 +914,15 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
       {/* MESSAGES - Fixed height container */}
       <div
         ref={messagesContainerRef}
-        className="flex-1 overflow-y-auto p-4 max-w-3xl mx-auto w-full"
+        className="flex-1 overflow-y-auto p-4 max-w-[600px] mx-auto w-full"
         style={{
           maxHeight: "calc(100vh - 170px)",
           // Remove justifyContent: "flex-end" as it prevents proper scrolling to top
           display: "flex",
           flexDirection: "column",
           border: "1px solid rgba(0, 0, 0, 0.1)",
-          borderRadius: "8px",
+          borderTopLeftRadius: "8px",
+          borderTopRightRadius: "8px",
         }}
       >
         {/* Add a spacer div that grows to push messages down when there are few messages */}
@@ -1075,7 +1076,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
       {/* Responsive INPUT area - Better for small screens */}
       <div className="p-2 sm:p-4 border-t dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
         {/* Regular desktop layout */}
-        <div className="hidden sm:flex items-center space-x-2 max-w-3xl mx-auto">
+        <div className="hidden sm:flex items-center space-x-2 max-w-[600px] mx-auto">
           <Button
             size="icon"
             variant="outline"

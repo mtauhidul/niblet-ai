@@ -1,5 +1,8 @@
 // app/layout.tsx
+// app/layout.tsx
 import AppWrapper from "@/components/AppWrapper";
+import NotificationManager from "@/components/NotificationManager";
+import { AppConfigProvider } from "@/context/AppConfigContext";
 import { Metadata } from "next";
 import React from "react";
 import "./globals.css";
@@ -20,7 +23,12 @@ export default function RootLayout({
         suppressHydrationWarning
         className=" bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-50"
       >
-        <AppWrapper>{children}</AppWrapper>
+        <AppConfigProvider initialIsAdmin={false}>
+          <AppWrapper>
+            {children}
+            <NotificationManager />
+          </AppWrapper>
+        </AppConfigProvider>
       </body>
     </html>
   );

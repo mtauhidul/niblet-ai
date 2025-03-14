@@ -1,3 +1,4 @@
+// components/AdminPanel.tsx
 "use client";
 
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,8 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { useAppConfig } from "@/context/AppConfigContext";
+import { AIPersonality, AISettings, Notification } from "@/lib/configManager";
 import {
   ArrowLeft,
   ChevronDown,
@@ -43,31 +46,6 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import HamburgerMenu from "./HamburgerMenu";
 
-// Type definitions
-interface AIPersonality {
-  name: string;
-  instructions: string;
-  temperature: number;
-  isActive: boolean;
-}
-
-interface AISettings {
-  personalities: Record<string, AIPersonality>;
-  defaultPersonality: string;
-  generalInstructions: string;
-}
-
-interface Notification {
-  id: number;
-  title: string;
-  message: string;
-  triggerTime: string;
-  daysActive: string[];
-  isActive: boolean;
-}
-
-type NewNotification = Omit<Notification, "id">;
-
 type TabValue = "ai-settings" | "notifications";
 
 type Day =
@@ -79,76 +57,14 @@ type Day =
   | "saturday"
   | "sunday";
 
+type NewNotification = Omit<Notification, "id">;
+
 const AdminPanel: React.FC = () => {
   const router = useRouter();
+  const { aiSettings, updateAISettings, notifications, updateNotifications } =
+    useAppConfig();
+
   const [activeTab, setActiveTab] = useState<TabValue>("ai-settings");
-  const [aiSettings, setAiSettings] = useState<AISettings>({
-    personalities: {
-      "best-friend": {
-        name: "Niblet (Best Friend)",
-        instructions:
-          "You are Niblet, a friendly and supportive AI meal tracking assistant. Speak in a warm, casual tone like you're talking to a close friend. Use encouraging language, be empathetic, and occasionally add friendly emojis. Make the user feel comfortable sharing their food choices without judgment. Celebrate their wins and provide gentle guidance when they need it. Your goal is to help users track their meals, estimate calories, and provide nutritional guidance in a fun, approachable way.",
-        temperature: 0.7,
-        isActive: true,
-      },
-      "professional-coach": {
-        name: "Niblet (Professional Coach)",
-        instructions:
-          "You are Niblet, a professional nutrition coach and meal tracking assistant. Maintain a supportive but data-driven approach. Speak with authority and precision, focusing on nutritional facts and measurable progress. Use a structured, clear communication style. Provide detailed nutritional breakdowns and specific, actionable advice based on the user's goals. Your responses should be informative, evidence-based, and focused on optimizing the user's nutrition for their specific goals.",
-        temperature: 0.3,
-        isActive: true,
-      },
-      "tough-love": {
-        name: "Niblet (Tough Love)",
-        instructions:
-          "You are Niblet, a no-nonsense, tough-love meal tracking assistant. Be direct, straightforward, and push users to be accountable. Don't sugarcoat feedback - if they're making poor choices, tell them directly. Use motivational language that challenges them to do better. Focus on results and holding users to high standards. Your goal is to push users out of their comfort zone, call out excuses, and drive real behavioral change through direct accountability.",
-        temperature: 0.5,
-        isActive: true,
-      },
-    },
-    defaultPersonality: "best-friend",
-    generalInstructions:
-      "You are Niblet, an AI assistant specialized in meal tracking, nutrition, and weight management. Your primary role is to help users log their meals, track their calorie intake, monitor their weight progress, and reach their health goals through better nutrition. Always be helpful, supportive, and knowledgeable about nutrition topics.",
-  });
-
-  const [notifications, setNotifications] = useState<Notification[]>([
-    {
-      id: 1,
-      title: "Meal Reminder",
-      message:
-        "Time to plan your lunch! What are you thinking of eating today?",
-      triggerTime: "11:30",
-      daysActive: ["monday", "tuesday", "wednesday", "thursday", "friday"],
-      isActive: true,
-    },
-    {
-      id: 2,
-      title: "Weight Check-in",
-      message:
-        "Good morning! Time for your weekly weigh-in. How's your progress this week?",
-      triggerTime: "08:00",
-      daysActive: ["monday"],
-      isActive: true,
-    },
-    {
-      id: 3,
-      title: "Dinner Planning",
-      message:
-        "What's for dinner tonight? Let me help you plan a balanced meal.",
-      triggerTime: "16:00",
-      daysActive: [
-        "monday",
-        "tuesday",
-        "wednesday",
-        "thursday",
-        "friday",
-        "saturday",
-        "sunday",
-      ],
-      isActive: false,
-    },
-  ]);
-
   const [editingPersonality, setEditingPersonality] = useState<string | null>(
     null
   );
@@ -176,27 +92,15 @@ const AdminPanel: React.FC = () => {
     "sunday",
   ];
 
+  const isAdmin = true; // Hardcoded for now
+
+  // Redirect non-admin users
   useEffect(() => {
-    // Load saved settings from localStorage if available
-    const loadSettings = (): void => {
-      try {
-        const savedAiSettings = localStorage.getItem("niblet-ai-settings");
-        const savedNotifications = localStorage.getItem("niblet-notifications");
-
-        if (savedAiSettings) {
-          setAiSettings(JSON.parse(savedAiSettings));
-        }
-
-        if (savedNotifications) {
-          setNotifications(JSON.parse(savedNotifications));
-        }
-      } catch (error) {
-        console.error("Error loading saved settings:", error);
-      }
-    };
-
-    loadSettings();
-  }, []);
+    if (!isAdmin) {
+      router.push("/dashboard");
+      toast.error("You don't have permission to access the admin panel");
+    }
+  }, [isAdmin, router]);
 
   // Handle personality edit
   const handlePersonalityChange = (
@@ -204,18 +108,18 @@ const AdminPanel: React.FC = () => {
     field: keyof AIPersonality,
     value: string | number | boolean
   ): void => {
-    setAiSettings((prev) => {
-      return {
-        ...prev,
-        personalities: {
-          ...prev.personalities,
-          [personality]: {
-            ...prev.personalities[personality],
-            [field]: value,
-          },
+    const updatedSettings: AISettings = {
+      ...aiSettings,
+      personalities: {
+        ...aiSettings.personalities,
+        [personality]: {
+          ...aiSettings.personalities[personality],
+          [field]: value,
         },
-      };
-    });
+      },
+    };
+
+    updateAISettings(updatedSettings);
   };
 
   // Generate a key from the name
@@ -242,10 +146,10 @@ const AdminPanel: React.FC = () => {
       return;
     }
 
-    setAiSettings((prev) => ({
-      ...prev,
+    const updatedSettings: AISettings = {
+      ...aiSettings,
       personalities: {
-        ...prev.personalities,
+        ...aiSettings.personalities,
         [newPersonalityKey]: {
           name: newPersonalityName,
           instructions:
@@ -254,24 +158,24 @@ const AdminPanel: React.FC = () => {
           isActive: true,
         },
       },
-    }));
+    };
 
+    updateAISettings(updatedSettings);
     setNewPersonalityKey("");
     setNewPersonalityName("");
     setIsCreatingNew(false);
     setEditingPersonality(newPersonalityKey); // Start editing the new personality
+    toast.success("New personality created successfully");
   };
 
   // Save AI settings
-  const saveAiSettings = (): void => {
+  const saveAISettings = (): void => {
     setIsLoading(true);
     setSavedMessage("");
     setErrorMessage("");
 
     try {
-      // Save to localStorage for demo purposes
-      localStorage.setItem("niblet-ai-settings", JSON.stringify(aiSettings));
-
+      // Save will happen through the context provider
       setSavedMessage("AI settings saved successfully!");
       toast.success("AI settings saved successfully!");
     } catch (error) {
@@ -297,26 +201,29 @@ const AdminPanel: React.FC = () => {
       return;
     }
 
-    setAiSettings((prev) => {
-      const updated = { ...prev };
-      const { [key]: _, ...rest } = updated.personalities;
-      updated.personalities = rest;
+    const { [key]: _, ...remainingPersonalities } = aiSettings.personalities;
 
-      if (editingPersonality === key) {
-        setEditingPersonality(null);
-      }
+    const updatedSettings: AISettings = {
+      ...aiSettings,
+      personalities: remainingPersonalities,
+    };
 
-      return updated;
-    });
+    updateAISettings(updatedSettings);
+
+    if (editingPersonality === key) {
+      setEditingPersonality(null);
+    }
+
+    toast.success("Personality deleted successfully");
   };
 
   // Handle notification toggle
   const toggleNotification = (id: number): void => {
-    setNotifications((prev) =>
-      prev.map((notif) =>
-        notif.id === id ? { ...notif, isActive: !notif.isActive } : notif
-      )
+    const updatedNotifications = notifications.map((notif) =>
+      notif.id === id ? { ...notif, isActive: !notif.isActive } : notif
     );
+
+    updateNotifications(updatedNotifications);
   };
 
   // Add new notification
@@ -336,14 +243,7 @@ const AdminPanel: React.FC = () => {
       },
     ];
 
-    setNotifications(updatedNotifications);
-
-    // Save to localStorage
-    localStorage.setItem(
-      "niblet-notifications",
-      JSON.stringify(updatedNotifications)
-    );
-
+    updateNotifications(updatedNotifications);
     toast.success("Notification added successfully!");
 
     // Reset form
@@ -361,14 +261,8 @@ const AdminPanel: React.FC = () => {
     const updatedNotifications = notifications.filter(
       (notif) => notif.id !== id
     );
-    setNotifications(updatedNotifications);
 
-    // Save to localStorage
-    localStorage.setItem(
-      "niblet-notifications",
-      JSON.stringify(updatedNotifications)
-    );
-
+    updateNotifications(updatedNotifications);
     toast.success("Notification deleted successfully!");
   };
 
@@ -394,10 +288,7 @@ const AdminPanel: React.FC = () => {
     setIsLoading(true);
 
     try {
-      localStorage.setItem(
-        "niblet-notifications",
-        JSON.stringify(notifications)
-      );
+      // Save happens through the context provider
       toast.success("Notification settings saved successfully!");
     } catch (error) {
       console.error("Error saving notification settings:", error);
@@ -407,8 +298,12 @@ const AdminPanel: React.FC = () => {
     }
   };
 
+  if (!isAdmin) {
+    return null; // Don't render anything if not admin
+  }
+
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-2 md:p-4 lg:p-6 max-w-3xl mx-auto">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-2 md:p-4 lg:p-6 max-w-[600px] mx-auto">
       {/* Header - Matching exactly the image */}
       <header className="flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
         <HamburgerMenu />
@@ -459,12 +354,13 @@ const AdminPanel: React.FC = () => {
               <Textarea
                 rows={4}
                 value={aiSettings.generalInstructions}
-                onChange={(e) =>
-                  setAiSettings((prev) => ({
-                    ...prev,
+                onChange={(e) => {
+                  const updatedSettings = {
+                    ...aiSettings,
                     generalInstructions: e.target.value,
-                  }))
-                }
+                  };
+                  updateAISettings(updatedSettings);
+                }}
                 className="mb-4"
               />
 
@@ -474,12 +370,13 @@ const AdminPanel: React.FC = () => {
                 </Label>
                 <Select
                   value={aiSettings.defaultPersonality}
-                  onValueChange={(value) =>
-                    setAiSettings((prev) => ({
-                      ...prev,
+                  onValueChange={(value) => {
+                    const updatedSettings = {
+                      ...aiSettings,
                       defaultPersonality: value,
-                    }))
-                  }
+                    };
+                    updateAISettings(updatedSettings);
+                  }}
                 >
                   <SelectTrigger id="default-personality" className="w-full">
                     <SelectValue placeholder="Select personality" />
@@ -768,7 +665,7 @@ const AdminPanel: React.FC = () => {
 
               {/* Save Button */}
               <Button
-                onClick={saveAiSettings}
+                onClick={saveAISettings}
                 disabled={isLoading}
                 className="mt-4 w-full md:w-auto"
               >

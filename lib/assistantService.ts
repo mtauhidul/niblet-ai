@@ -1,29 +1,33 @@
-// assistantService.ts optimizations to improve performance and implement streaming
-
+// lib/assistantService.ts
 import OpenAI from "openai";
-import { createOrUpdateUserProfile } from "./firebase/models/user";
-import runStateManager from "./runStateManager";
+import {
+  getPersonalityInstructions,
+  getTemperatureForPersonality,
+} from "./configManager";
 
 // Initialize OpenAI client
 const openai = new OpenAI({
-  apiKey: process.env.NEXT_PUBLIC_OPENAI_API_KEY || process.env.OPENAI_API_KEY,
+  apiKey: process.env.NEXT_PUBLIC_OPENAI_API_KEY || "",
   dangerouslyAllowBrowser: true, // Only for client-side usage
 });
 
-// Define personalities
 export type PersonalityKey =
   | "best-friend"
   | "professional-coach"
-  | "tough-love";
+  | "tough-love"
+  | string;
 
-// Define assistant instructions for each personality
-const assistantInstructions: Record<PersonalityKey, string> = {
-  "best-friend": "Be supportive and friendly.",
-  "professional-coach": "Provide professional and structured advice.",
-  "tough-love": "Be direct and honest, even if it's tough to hear.",
-};
+// Create a thread
+export async function createThread(): Promise<string | null> {
+  try {
+    const thread = await openai.beta.threads.create();
+    return thread.id;
+  } catch (error) {
+    console.error("Error creating thread:", error);
+    return null;
+  }
+}
 
-// Function to check OpenAI API availability
 export const checkOpenAIAvailability = async (): Promise<boolean> => {
   try {
     // Simple lightweight request to check API connectivity
@@ -35,29 +39,21 @@ export const checkOpenAIAvailability = async (): Promise<boolean> => {
   }
 };
 
-// Create a thread
-export const createThread = async (): Promise<string | null> => {
-  try {
-    const thread = await openai.beta.threads.create();
-    console.log("Thread created:", thread.id);
-    return thread.id;
-  } catch (error) {
-    console.error("Error creating thread:", error);
-    return null;
-  }
-};
-
-// Get or create assistant
-export const getOrCreateAssistant = async (
+// Get or create assistant with specific personality
+export async function getOrCreateAssistant(
   personality: PersonalityKey = "best-friend"
-): Promise<string | null> => {
+): Promise<string | null> {
   try {
-    console.log(`Creating assistant with ${personality} personality`);
-    // Always create a new assistant to ensure the latest instructions are used
+    // Get instructions from config manager
+    const instructions = getPersonalityInstructions(personality);
+    const temperature = getTemperatureForPersonality(personality);
+
+    // Create a new assistant with the configured instructions and temperature
     const assistant = await openai.beta.assistants.create({
       name: `Niblet (${personality})`,
-      instructions: assistantInstructions[personality],
-      model: "gpt-4o-mini", // Using gpt-4o-mini for better performance
+      instructions: instructions,
+      model: "gpt-4o-mini", // Or your chosen model
+      temperature: temperature,
       tools: [
         {
           type: "function",
@@ -136,55 +132,38 @@ export const getOrCreateAssistant = async (
             },
           },
         },
-        {
-          type: "function",
-          function: {
-            name: "get_nutrition_info",
-            description: "Get nutrition information for a food item or meal",
-            parameters: {
-              type: "object",
-              properties: {
-                food_item: {
-                  type: "string",
-                  description: "The food item or meal to look up",
-                },
-                serving_size: {
-                  type: "string",
-                  description: "The serving size (e.g., '1 cup', '100g')",
-                },
-              },
-              required: ["food_item"],
-            },
-          },
-        },
+        // Add other tools as needed
       ],
     });
-    console.log("Assistant created:", assistant.id);
+
     return assistant.id;
   } catch (error) {
     console.error("Error creating assistant:", error);
     return null;
   }
-};
+}
 
-// Add a message to a thread
-export const addMessageToThread = async (
+// Add a message to the thread
+export async function addMessageToThread(
   threadId: string,
   content: string,
   imageUrl?: string
-): Promise<boolean> => {
+): Promise<boolean> {
   try {
-    const messageContent: any[] = [
-      {
-        type: "text",
-        text: content,
-      },
-    ];
+    const messageContent = [];
 
-    // Add image if provided
+    // Add text content
+    if (content) {
+      messageContent.push({
+        type: "text" as const,
+        text: content,
+      });
+    }
+
+    // Add image content if provided
     if (imageUrl) {
       messageContent.push({
-        type: "image_url",
+        type: "image_url" as const,
         image_url: {
           url: imageUrl,
         },
@@ -195,270 +174,245 @@ export const addMessageToThread = async (
       role: "user",
       content: messageContent,
     });
+
     return true;
   } catch (error) {
     console.error("Error adding message to thread:", error);
     return false;
   }
-};
-
-// Interface for the handler function
-interface ToolCallHandler {
-  (toolName: string, toolArgs: any): Promise<{
-    success: boolean;
-    message: string;
-    [key: string]: any;
-  }>;
 }
 
-// Run the assistant with streaming support
-export const runAssistantStreaming = async (
+// Transcribe audio with Whisper API
+export async function transcribeAudio(audioBlob: Blob): Promise<string> {
+  try {
+    const formData = new FormData();
+    formData.append("file", audioBlob, "recording.webm");
+    formData.append("model", "whisper-1");
+
+    const response = await fetch(
+      "https://api.openai.com/v1/audio/transcriptions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.NEXT_PUBLIC_OPENAI_API_KEY}`,
+        },
+        body: formData,
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Error transcribing audio: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    return result.text;
+  } catch (error) {
+    console.error("Error transcribing audio:", error);
+    return "";
+  }
+}
+
+// Interface for handling tool calls
+interface ToolCallHandler {
+  (toolName: string, toolArgs: any): Promise<any>;
+}
+
+// Run the assistant and handle any tool calls
+export async function runAssistant(
   threadId: string,
   assistantId: string,
   personality: PersonalityKey,
-  callback: (chunk: { text: string; isComplete: boolean }) => void,
-  toolHandler: ToolCallHandler
-): Promise<void> => {
+  toolCallHandler: ToolCallHandler
+): Promise<Array<{ id: string; content: string; createdAt: Date }> | null> {
   try {
-    // Set the run as active in the state manager
-    runStateManager.setRunActive(threadId, "starting");
+    // Get temperature from config manager
+    const temperature = getTemperatureForPersonality(personality);
 
-    // Start the run
+    // Run the assistant
     const run = await openai.beta.threads.runs.create(threadId, {
       assistant_id: assistantId,
+      temperature: temperature,
     });
 
-    runStateManager.setRunActive(threadId, run.id);
-
-    // Polling mechanism
+    // Poll for completion
     let runStatus = await openai.beta.threads.runs.retrieve(threadId, run.id);
-    let isComplete = false;
-    let accumulatedMessage = "";
-    let fullMessageId = "";
 
-    while (!isComplete) {
-      // Check if the run requires action (function calling)
+    // Wait for the run to complete (polling)
+    while (
+      !["completed", "failed", "cancelled", "expired"].includes(
+        runStatus.status
+      )
+    ) {
+      // Wait for 1 second
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      // Check status again
+      runStatus = await openai.beta.threads.runs.retrieve(threadId, run.id);
+
+      // Handle function calls if needed
       if (
         runStatus.status === "requires_action" &&
         runStatus.required_action?.submit_tool_outputs
       ) {
-        const toolCalls =
+        const requiredActions =
           runStatus.required_action.submit_tool_outputs.tool_calls;
         const toolOutputs = [];
 
-        for (const toolCall of toolCalls) {
-          try {
-            const functionName = toolCall.function.name;
-            const functionArgs = JSON.parse(toolCall.function.arguments);
+        for (const action of requiredActions) {
+          const functionName = action.function.name;
+          const functionArgs = JSON.parse(action.function.arguments);
 
-            // Handle the tool call
-            const result = await toolHandler(functionName, functionArgs);
+          // Use the passed handler to process tool calls
+          const output = await toolCallHandler(functionName, functionArgs);
 
-            toolOutputs.push({
-              tool_call_id: toolCall.id,
-              output: JSON.stringify(result),
-            });
-          } catch (error) {
-            console.error(`Error processing tool call ${toolCall.id}:`, error);
-            toolOutputs.push({
-              tool_call_id: toolCall.id,
-              output: JSON.stringify({
-                success: false,
-                message: "Error processing function call",
-              }),
-            });
-          }
+          toolOutputs.push({
+            tool_call_id: action.id,
+            output: JSON.stringify(output),
+          });
         }
 
-        // Submit all tool outputs back to the assistant
+        // Submit tool outputs back to the assistant
         await openai.beta.threads.runs.submitToolOutputs(threadId, run.id, {
           tool_outputs: toolOutputs,
         });
       }
-
-      // Check if run is completed
-      else if (runStatus.status === "completed") {
-        isComplete = true;
-
-        // Get the latest message and stream it to the client
-        const messages = await openai.beta.threads.messages.list(threadId, {
-          limit: 1,
-          order: "desc",
-        });
-
-        if (messages.data.length > 0) {
-          const lastMessage = messages.data[0];
-          fullMessageId = lastMessage.id;
-
-          // Extract text content
-          const content = lastMessage.content.filter((c) => c.type === "text");
-          if (content.length > 0) {
-            const text = content[0].text.value;
-            accumulatedMessage = text;
-
-            // Send the full message with complete flag
-            callback({
-              text: accumulatedMessage,
-              isComplete: true,
-            });
-          }
-        }
-      }
-
-      // Handle failed runs
-      else if (["failed", "cancelled", "expired"].includes(runStatus.status)) {
-        isComplete = true;
-        callback({
-          text: "Sorry, I encountered an issue. Please try again.",
-          isComplete: true,
-        });
-        console.error(`Run ${run.id} ended with status: ${runStatus.status}`);
-      }
-
-      // For in-progress runs, attempt to stream partial content
-      else if (runStatus.status === "in_progress") {
-        try {
-          // Try to get the latest message in the thread
-          const messages = await openai.beta.threads.messages.list(threadId, {
-            limit: 1,
-            order: "desc",
-          });
-
-          // If there's a new message and it's from the assistant
-          if (
-            messages.data.length > 0 &&
-            messages.data[0].role === "assistant"
-          ) {
-            const latestMessage = messages.data[0];
-
-            // Only process if it's a new message or the message has been updated
-            if (latestMessage.id !== fullMessageId) {
-              fullMessageId = latestMessage.id;
-
-              // Extract text content
-              const content = latestMessage.content.filter(
-                (c) => c.type === "text"
-              );
-              if (content.length > 0) {
-                const text = content[0].text.value;
-
-                // If this is new content, send it
-                if (text !== accumulatedMessage) {
-                  accumulatedMessage = text;
-                  callback({
-                    text: accumulatedMessage,
-                    isComplete: false,
-                  });
-                }
-              }
-            }
-          }
-        } catch (error) {
-          console.error("Error retrieving message during streaming:", error);
-        }
-      }
-
-      // If run is still in progress, wait and then poll again
-      if (!isComplete) {
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        runStatus = await openai.beta.threads.runs.retrieve(threadId, run.id);
-      }
     }
 
-    // Mark run as complete
-    runStateManager.setRunInactive(threadId);
-  } catch (error) {
-    console.error("Error running assistant with streaming:", error);
-    callback({
-      text: "Sorry, I encountered an unexpected error. Please try again.",
-      isComplete: true,
-    });
-    runStateManager.setRunInactive(threadId);
-  }
-};
+    // Check if run completed successfully
+    if (runStatus.status !== "completed") {
+      throw new Error(`Run ended with status: ${runStatus.status}`);
+    }
 
-// Run the assistant (original non-streaming version for backward compatibility)
-export const runAssistant = async (
-  threadId: string,
-  assistantId: string,
-  personality: PersonalityKey,
-  toolHandler: ToolCallHandler
-): Promise<Array<{
-  id: string;
-  content: string;
-  createdAt: Date;
-}> | null> => {
-  try {
-    const messages: Array<{
-      id: string;
-      content: string;
-      createdAt: Date;
-    }> = [];
+    // Get the messages after the run completes
+    const messages = await openai.beta.threads.messages.list(threadId);
 
-    // Use the streaming version but collect all the messages
-    await runAssistantStreaming(
-      threadId,
-      assistantId,
-      personality,
-      ({ text, isComplete }) => {
-        if (isComplete) {
-          messages.push({
-            id: `msg-${Date.now()}`,
-            content: text,
-            createdAt: new Date(),
-          });
-        }
-      },
-      toolHandler
-    );
+    // Process assistant messages
+    const assistantMessages = messages.data
+      .filter((msg) => msg.role === "assistant")
+      .map((msg) => ({
+        id: msg.id,
+        content:
+          msg.content[0]?.type === "text" ? msg.content[0].text.value : "",
+        createdAt: new Date(msg.created_at * 1000),
+      }))
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 
-    return messages.length > 0 ? messages : null;
+    return assistantMessages;
   } catch (error) {
     console.error("Error running assistant:", error);
     return null;
   }
-};
+}
 
-// Transcribe audio
-export const transcribeAudio = async (audioBlob: Blob): Promise<string> => {
+// Streaming version of runAssistant
+export async function runAssistantStreaming(
+  threadId: string,
+  assistantId: string,
+  personality: PersonalityKey,
+  onUpdate: (update: { text: string; isComplete: boolean }) => void,
+  toolCallHandler: ToolCallHandler
+): Promise<void> {
   try {
-    // Convert blob to file
-    const file = new File([audioBlob], "audio.webm", {
-      type: audioBlob.type,
+    // Get temperature from config manager
+    const temperature = getTemperatureForPersonality(personality);
+
+    // Run the assistant
+    const run = await openai.beta.threads.runs.create(threadId, {
+      assistant_id: assistantId,
+      temperature: temperature,
     });
 
-    // Use the Whisper API
-    const response = await openai.audio.transcriptions.create({
-      file,
-      model: "whisper-1",
-    });
+    // Variable to track the accumulated text
+    let accumulatedText = "";
 
-    return response.text;
+    // Poll for completion while providing updates
+    let runStatus = await openai.beta.threads.runs.retrieve(threadId, run.id);
+
+    // Function to fetch latest messages and update callback
+    const updateWithLatestMessages = async () => {
+      // Get the messages after the run completes
+      const messages = await openai.beta.threads.messages.list(threadId);
+
+      // Get the most recent assistant message
+      const latestMessage = messages.data
+        .filter((msg) => msg.role === "assistant")
+        .sort((a, b) => b.created_at - a.created_at)[0];
+
+      if (latestMessage && latestMessage.content[0]?.type === "text") {
+        const text = latestMessage.content[0].text.value;
+        if (text !== accumulatedText) {
+          accumulatedText = text;
+          onUpdate({ text, isComplete: false });
+        }
+      }
+    };
+
+    // Wait for the run to complete (polling)
+    while (
+      !["completed", "failed", "cancelled", "expired"].includes(
+        runStatus.status
+      )
+    ) {
+      // Periodically fetch the current state to simulate streaming
+      await updateWithLatestMessages();
+
+      // Wait for a short interval
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      // Check status again
+      runStatus = await openai.beta.threads.runs.retrieve(threadId, run.id);
+
+      // Handle function calls if needed
+      if (
+        runStatus.status === "requires_action" &&
+        runStatus.required_action?.submit_tool_outputs
+      ) {
+        const requiredActions =
+          runStatus.required_action.submit_tool_outputs.tool_calls;
+        const toolOutputs = [];
+
+        for (const action of requiredActions) {
+          const functionName = action.function.name;
+          const functionArgs = JSON.parse(action.function.arguments);
+
+          // Use the passed handler to process tool calls
+          const output = await toolCallHandler(functionName, functionArgs);
+
+          toolOutputs.push({
+            tool_call_id: action.id,
+            output: JSON.stringify(output),
+          });
+        }
+
+        // Submit tool outputs back to the assistant
+        await openai.beta.threads.runs.submitToolOutputs(threadId, run.id, {
+          tool_outputs: toolOutputs,
+        });
+      }
+    }
+
+    // Final update after completion
+    if (runStatus.status === "completed") {
+      // Get final message
+      const messages = await openai.beta.threads.messages.list(threadId);
+      const latestMessage = messages.data
+        .filter((msg) => msg.role === "assistant")
+        .sort((a, b) => b.created_at - a.created_at)[0];
+
+      if (latestMessage && latestMessage.content[0]?.type === "text") {
+        const finalText = latestMessage.content[0].text.value;
+        onUpdate({ text: finalText, isComplete: true });
+      } else {
+        onUpdate({ text: accumulatedText, isComplete: true });
+      }
+    } else {
+      throw new Error(`Run ended with status: ${runStatus.status}`);
+    }
   } catch (error) {
-    console.error("Error transcribing audio:", error);
-    throw error;
-  }
-};
-
-// Update a user's assistant preference
-export const updateUserAssistantPreference = async (
-  userId: string,
-  personality: PersonalityKey
-): Promise<boolean> => {
-  try {
-    // Create a new assistant with the selected personality
-    const assistantId = await getOrCreateAssistant(personality);
-    if (!assistantId) return false;
-
-    // Update the user profile
-    await createOrUpdateUserProfile(userId, {
-      assistantId,
-      aiPersonality: personality,
+    console.error("Error running assistant with streaming:", error);
+    onUpdate({
+      text: "I'm sorry, I experienced an error while processing your request. Please try again.",
+      isComplete: true,
     });
-
-    return true;
-  } catch (error) {
-    console.error("Error updating user assistant preference:", error);
-    return false;
   }
-};
+}

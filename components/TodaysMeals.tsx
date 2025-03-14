@@ -303,7 +303,7 @@ const TodaysMeals = ({
                           <div className="col-span-2 text-right">
                             {item.fat}
                           </div>
-                          <div className="col-span-1 flex justify-end">
+                          <div className="col-span-1 flex justify-center flex-row items-center ml-4">
                             {item.id && (
                               <>
                                 <Button

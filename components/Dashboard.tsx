@@ -332,7 +332,7 @@ const Dashboard = ({
   }
 
   return (
-    <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-900 max-w-3xl mx-auto">
+    <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-900 max-w-[600px] mx-auto">
       {/* Header */}
       <header className="py-3 px-4 border-b dark:border-gray-800 flex justify-between items-center">
         <HamburgerMenu />
