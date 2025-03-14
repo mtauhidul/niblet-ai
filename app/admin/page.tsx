@@ -1,51 +1,71 @@
 // app/admin/page.tsx
-// This is your page component that renders the AdminPanel
-
 "use client";
 
 import AdminPanel from "@/components/AdminPanel";
+import { db } from "@/lib/firebase/clientApp";
+import { doc, getDoc } from "firebase/firestore";
+import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 export default function AdminPage() {
+  const { data: session, status } = useSession();
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
 
   useEffect(() => {
     const checkAdminStatus = async () => {
+      if (status === "loading") return;
+
+      if (status === "unauthenticated") {
+        router.push("/auth/signin");
+        return;
+      }
+
+      if (!session?.user?.id) {
+        toast.error("User ID not found in session");
+        router.push("/dashboard");
+        return;
+      }
+
       try {
-        // In a real app, you'd make an API call like:
-        // const response = await fetch('/api/auth/check-admin');
-        // const data = await response.json();
-        // setIsAdmin(data.isAdmin);
+        console.log("Checking admin status for user ID:", session.user.id);
 
-        // For demo purposes, simulate an API call with a longer timeout
-        // to ensure the real check would have time to complete
-        setTimeout(() => {
-          // This would come from your API in a real app - set to true for testing
-          const adminStatus = true;
-          setIsAdmin(adminStatus);
-          setIsLoading(false);
+        // Check admin status using client-side Firebase
+        const userProfileRef = doc(db, "userProfiles", session.user.id);
+        const userProfileSnap = await getDoc(userProfileRef);
 
-          // Only redirect if not admin
-          if (!adminStatus) {
+        console.log("User profile exists:", userProfileSnap.exists());
+
+        if (userProfileSnap.exists()) {
+          const userData = userProfileSnap.data();
+          console.log("User data:", userData);
+          const isAdmin = userData?.isAdmin === true;
+
+          setIsAdmin(isAdmin);
+
+          if (!isAdmin) {
             toast.error("You don't have permission to access the admin panel");
             router.push("/dashboard");
           }
-        }, 800);
+        } else {
+          console.log("User profile not found");
+          toast.error("Admin profile not found");
+          router.push("/dashboard");
+        }
       } catch (error) {
         console.error("Error checking admin status:", error);
-        setIsAdmin(false);
-        setIsLoading(false);
-        toast.error("Error checking admin permissions");
+        toast.error("Failed to verify admin permissions");
         router.push("/dashboard");
+      } finally {
+        setIsLoading(false);
       }
     };
 
     checkAdminStatus();
-  }, [router]);
+  }, [session, status, router]);
 
   // Show loading spinner while checking admin status
   if (isLoading) {
@@ -54,7 +74,7 @@ export default function AdminPage() {
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
           <p className="mt-4 text-gray-600 dark:text-gray-300">
-            Loading admin panel...
+            Verifying admin access...
           </p>
         </div>
       </div>

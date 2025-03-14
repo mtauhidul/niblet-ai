@@ -1,6 +1,4 @@
 // components/HamburgerMenu.tsx
-// Update the admin navigation in the hamburger menu
-
 "use client";
 
 import { Button } from "@/components/ui/button";
@@ -14,6 +12,8 @@ import {
 } from "@/components/ui/sheet";
 import { signOutFromAll } from "@/lib/auth/authUtils";
 import { clearAllStorage } from "@/lib/ChatHistoryManager";
+import { db } from "@/lib/firebase/clientApp";
+import { doc, getDoc } from "firebase/firestore";
 import {
   Download,
   Home,
@@ -39,28 +39,44 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({ className = "" }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isCheckingAdmin, setIsCheckingAdmin] = useState(true);
   const router = useRouter();
   const { data: session } = useSession();
 
-  // Check admin status
+  // Check admin status from Firestore directly
   useEffect(() => {
     const checkAdminStatus = async () => {
-      try {
-        // In a real app, you would fetch the admin status from an API
-        // const response = await fetch('/api/auth/check-admin');
-        // const data = await response.json();
-        // setIsAdmin(data.isAdmin);
+      setIsCheckingAdmin(true);
 
-        // For demo purposes, we'll set this to true
-        setIsAdmin(true);
+      try {
+        if (!session?.user?.id) {
+          setIsAdmin(false);
+          return;
+        }
+
+        // Get user profile from Firestore
+        const userProfileRef = doc(db, "userProfiles", session.user.id);
+        const userProfileSnap = await getDoc(userProfileRef);
+
+        // Check if user has admin privileges
+        const hasAdminAccess =
+          userProfileSnap.exists() && userProfileSnap.data()?.isAdmin === true;
+        setIsAdmin(hasAdminAccess);
+
+        console.log("Admin status:", hasAdminAccess);
       } catch (error) {
         console.error("Error checking admin status:", error);
         setIsAdmin(false);
+      } finally {
+        setIsCheckingAdmin(false);
       }
     };
 
     if (session?.user) {
       checkAdminStatus();
+    } else {
+      setIsAdmin(false);
+      setIsCheckingAdmin(false);
     }
   }, [session]);
 
@@ -322,6 +338,11 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({ className = "" }) => {
                   <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
                     {session.user.email}
                   </div>
+                  {isAdmin && (
+                    <div className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 px-1.5 py-0.5 rounded-sm mt-1 inline-block">
+                      Admin
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

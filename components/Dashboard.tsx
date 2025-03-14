@@ -243,13 +243,38 @@ const Dashboard = ({
   }, [session?.user?.id]);
 
   // On mount, check auth status, load profile, set up meals
+  // In components/Dashboard.tsx
+  // Add this to the existing useEffect that checks auth status
+
   useEffect(() => {
     if (!mounted) return;
     if (status === "unauthenticated") {
       router.push("/auth/signin");
     } else if (status === "authenticated" && session?.user?.id) {
-      loadUserProfile();
-      setupFirestoreListener();
+      // First check if onboarding is completed
+      const checkOnboarding = async () => {
+        try {
+          const response = await fetch("/api/user/onboarding-status");
+          if (response.ok) {
+            const data = await response.json();
+            if (!data.onboardingCompleted) {
+              // Redirect to onboarding if not completed
+              router.push("/onboarding");
+              return;
+            }
+          }
+          // Continue loading user profile if onboarding is completed
+          loadUserProfile();
+          setupFirestoreListener();
+        } catch (err) {
+          console.error("Error checking onboarding status:", err);
+          // Load profile anyway on error to avoid blocking the user
+          loadUserProfile();
+          setupFirestoreListener();
+        }
+      };
+
+      checkOnboarding();
     }
   }, [
     status,

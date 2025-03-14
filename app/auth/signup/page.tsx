@@ -47,9 +47,9 @@ export default function SignUpPage() {
       setIsLoading(true);
       setError(""); // Clear any existing errors
 
-      // Use signIn with redirect: false to get the result
+      // Change callbackUrl from "/dashboard" to "/onboarding"
       const result = await signIn("google", {
-        callbackUrl: "/dashboard",
+        callbackUrl: "/onboarding",
         redirect: false, // Don't automatically redirect
       });
 
@@ -82,8 +82,9 @@ export default function SignUpPage() {
     try {
       setIsLoading(true);
 
+      // Change callbackUrl from "/dashboard" to "/onboarding"
       const result = await signIn("facebook", {
-        callbackUrl: "/dashboard",
+        callbackUrl: "/onboarding",
         redirect: false,
       });
 
