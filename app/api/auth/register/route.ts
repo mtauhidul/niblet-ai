@@ -1,5 +1,5 @@
 // app/api/auth/register/route.ts
-import { registerUser } from "@/lib/auth/authService";
+import { emailExists, registerUser } from "@/lib/auth/authService";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(request: NextRequest) {
@@ -18,6 +18,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { message: "Password must be at least 8 characters long" },
         { status: 400 }
+      );
+    }
+
+    // Check if email already exists before creating user
+    const emailAlreadyExists = await emailExists(email);
+    if (emailAlreadyExists) {
+      return NextResponse.json(
+        { message: "A user with this email already exists" },
+        { status: 409 } // 409 Conflict is appropriate for duplicate resource
       );
     }
 

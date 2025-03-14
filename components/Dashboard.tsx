@@ -409,7 +409,8 @@ const Dashboard = ({
         <CollapsibleSection title="Weight Tracking" initiallyExpanded={true}>
           <WeightLogComponent
             onWeightLogged={handleWeightLogged}
-            startWeight={userProfile?.currentWeight}
+            startingWeight={userProfile?.startingWeight}
+            currentWeight={userProfile?.currentWeight}
             targetWeight={userProfile?.targetWeight}
           />
         </CollapsibleSection>

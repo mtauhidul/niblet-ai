@@ -29,7 +29,7 @@ interface ExtractedUserData {
   name?: string;
   age?: number | null;
   gender?: string | null;
-  currentWeight?: number | null;
+  startingWeight?: number | null;
   targetWeight?: number | null;
   height?: number | null;
   activityLevel?: string | null;
@@ -54,15 +54,13 @@ const ConversationalOnboarding = () => {
   const [isInitializing, setIsInitializing] = useState(true);
   const [extractedData, setExtractedData] = useState<ExtractedUserData>({});
   const [onboardingStep, setOnboardingStep] = useState(0);
+  const [isProfileSaving, setIsProfileSaving] = useState(false); // New state to prevent double saving
 
   const messageEndRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const { data: session, status } = useSession();
 
   // Initialize chat
-  // Update the ConversationalOnboarding.tsx component
-
-  // Update the useEffect for initialization to set the specific onboarding flow
   useEffect(() => {
     const initializeOnboarding = async () => {
       setIsInitializing(true);
@@ -141,25 +139,28 @@ const ConversationalOnboarding = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, router]);
 
-  // Update the onboarding completion logic to automatically transition to dashboard
-  // and prompt for first weight and meal:
-
   // When onboarding is complete, save data and redirect to dashboard
   useEffect(() => {
-    if (isComplete && threadId && session?.user?.id) {
+    if (isComplete && threadId && session?.user?.id && !isProfileSaving) {
       const completeOnboarding = async () => {
+        setIsProfileSaving(true); // Prevent duplicate calls
         try {
+          console.log(
+            "Starting onboarding completion with data:",
+            extractedData
+          );
+
           // Calculate target calories based on profile data
           let targetCalories = 0;
 
           if (
-            extractedData.currentWeight &&
+            extractedData.startingWeight &&
             extractedData.height &&
             extractedData.age
           ) {
             // Simple BMR calculation based on weight (in lbs), height (in inches), and age
             // Using a modified Harris-Benedict equation
-            const weight = extractedData.currentWeight;
+            const weight = extractedData.startingWeight;
             const height = extractedData.height;
             const age = extractedData.age;
 
@@ -186,7 +187,7 @@ const ConversationalOnboarding = () => {
             // If weight loss goal, create a moderate deficit
             if (
               extractedData.targetWeight &&
-              extractedData.targetWeight < extractedData.currentWeight
+              extractedData.targetWeight < extractedData.startingWeight
             ) {
               targetCalories -= 500; // Standard deficit for ~1lb/week loss
             }
@@ -208,6 +209,47 @@ const ConversationalOnboarding = () => {
           if (!mainAssistantId)
             throw new Error("Failed to create main assistant");
 
+          // Format target date if it exists
+          let formattedTargetDate = null;
+          if (extractedData.targetDate) {
+            try {
+              // Convert descriptive date to a proper date
+              if (extractedData.targetDate.includes("in")) {
+                // Handle "in X weeks/months/years" format
+                const matches = /in\s+(\d+)\s+(days|weeks|months|years)/i.exec(
+                  extractedData.targetDate
+                );
+                if (matches && matches.length >= 3) {
+                  const amount = parseInt(matches[1]);
+                  const unit = matches[2].toLowerCase();
+
+                  const now = new Date();
+                  if (unit === "days") {
+                    now.setDate(now.getDate() + amount);
+                  } else if (unit === "weeks") {
+                    now.setDate(now.getDate() + amount * 7);
+                  } else if (unit === "months") {
+                    now.setMonth(now.getMonth() + amount);
+                  } else if (unit === "years") {
+                    now.setFullYear(now.getFullYear() + amount);
+                  }
+
+                  formattedTargetDate = now.toISOString();
+                }
+              } else {
+                // Try to parse other date formats
+                const date = new Date(extractedData.targetDate);
+                if (!isNaN(date.getTime())) {
+                  formattedTargetDate = date.toISOString();
+                }
+              }
+            } catch (error) {
+              console.error("Error parsing target date:", error);
+              // Keep the original string if parsing fails
+              formattedTargetDate = extractedData.targetDate;
+            }
+          }
+
           // Save all the onboarding data to user profile
           const profileData: Record<string, any> = {
             onboardingThreadId: threadId,
@@ -227,10 +269,10 @@ const ConversationalOnboarding = () => {
             profileData.age = extractedData.age;
           if (extractedData.gender) profileData.gender = extractedData.gender;
           if (
-            extractedData.currentWeight !== null &&
-            extractedData.currentWeight !== undefined
+            extractedData.startingWeight !== null &&
+            extractedData.startingWeight !== undefined
           )
-            profileData.currentWeight = extractedData.currentWeight;
+            profileData.startingWeight = extractedData.startingWeight;
           if (
             extractedData.targetWeight !== null &&
             extractedData.targetWeight !== undefined
@@ -248,19 +290,28 @@ const ConversationalOnboarding = () => {
             extractedData.dietaryPreferences.length > 0
           )
             profileData.dietaryPreferences = extractedData.dietaryPreferences;
+          if (formattedTargetDate) profileData.targetDate = formattedTargetDate;
 
           // Set goal type only if there's a target weight
           if (extractedData.targetWeight) profileData.goalType = "Weight Loss";
 
+          console.log("Saving profile data:", profileData);
+
           // Now send only the fields with actual values to Firestore
-          await createOrUpdateUserProfile(session.user.id, profileData);
+          if (session?.user?.id) {
+            await createOrUpdateUserProfile(session.user.id, profileData);
+          } else {
+            throw new Error("User ID is not available");
+          }
+
+          console.log("Profile successfully saved!");
 
           // Initialize the main chat thread with a welcome and prompt for first meal
           await addMessageToThread(
             mainThreadId,
             `System: Initialize with this user info: 
           Name: ${extractedData.name || "User"}, 
-          Current Weight: ${extractedData.currentWeight || "Not provided"}, 
+          Current Weight: ${extractedData.startingWeight || "Not provided"}, 
           Target Weight: ${extractedData.targetWeight || "Not provided"}, 
           Height: ${extractedData.height || "Not provided"}, 
           Age: ${extractedData.age || "Not provided"},
@@ -294,12 +345,20 @@ const ConversationalOnboarding = () => {
           setError(
             "There was a problem saving your profile. Please try again."
           );
+          setIsProfileSaving(false); // Reset if there's an error
         }
       };
 
       completeOnboarding();
     }
-  }, [isComplete, threadId, session?.user?.id, router, extractedData]);
+  }, [
+    isComplete,
+    threadId,
+    session?.user?.id,
+    router,
+    extractedData,
+    isProfileSaving,
+  ]);
 
   // Process information extraction through the AI assistant
   const handleToolCall = async (toolName: string, toolArgs: any) => {
@@ -331,11 +390,11 @@ const ConversationalOnboarding = () => {
     let step = 0;
 
     if (data.name) step++;
-    if (data.currentWeight) step++;
+    if (data.startingWeight) step++;
     if (data.height && data.age) step++;
     if (data.activityLevel) step++;
     if (data.dietaryPreferences) step++;
-    if (data.targetWeight && data.targetDate) step++;
+    if (data.targetWeight) step++; // Modified to only require targetWeight
 
     return Math.min(step, 6);
   };
@@ -373,124 +432,6 @@ const ConversationalOnboarding = () => {
       }
     }
   }, [messages, onboardingStep]);
-
-  // When onboarding is complete, save data and redirect to dashboard
-  useEffect(() => {
-    if (isComplete && threadId && session?.user?.id) {
-      const completeOnboarding = async () => {
-        try {
-          // Calculate target calories based on profile data
-          let targetCalories = 0;
-
-          if (
-            extractedData.currentWeight &&
-            extractedData.height &&
-            extractedData.age
-          ) {
-            // Simple BMR calculation based on weight (in lbs), height (in inches), and age
-            // Using a modified Harris-Benedict equation
-            const weight = extractedData.currentWeight;
-            const height = extractedData.height;
-            const age = extractedData.age;
-
-            // Base BMR calculation (very simplified)
-            const bmr =
-              10 * (weight * 0.453592) + 6.25 * (height * 2.54) - 5 * age;
-
-            // Activity multiplier
-            let activityMultiplier = 1.2; // Default sedentary
-            if (extractedData.activityLevel) {
-              const level = extractedData.activityLevel.toLowerCase();
-              if (level.includes("lightly active")) activityMultiplier = 1.375;
-              else if (level.includes("moderately active"))
-                activityMultiplier = 1.55;
-              else if (level.includes("very active"))
-                activityMultiplier = 1.725;
-              else if (level.includes("extremely active"))
-                activityMultiplier = 1.9;
-            }
-
-            // Adjust for weight goal
-            targetCalories = Math.round(bmr * activityMultiplier);
-
-            // If weight loss goal, create a moderate deficit
-            if (
-              extractedData.targetWeight &&
-              extractedData.targetWeight < extractedData.currentWeight
-            ) {
-              targetCalories -= 500; // Standard deficit for ~1lb/week loss
-            }
-          } else {
-            // Default if we can't calculate
-            targetCalories = 2000;
-          }
-
-          // Calculate macros based on target calories
-          const targetProtein = Math.round((targetCalories * 0.3) / 4); // 30% protein
-          const targetFat = Math.round((targetCalories * 0.3) / 9); // 30% fat
-          const targetCarbs = Math.round((targetCalories * 0.4) / 4); // 40% carbs
-
-          // Save all the onboarding data to user profile
-          // Create an initial data object
-          const profileData: Record<string, any> = {
-            onboardingThreadId: threadId,
-            onboardingCompleted: true,
-            targetCalories: targetCalories,
-            targetProtein: targetProtein,
-            targetCarbs: targetCarbs,
-            targetFat: targetFat,
-          };
-
-          // Only add fields that have actual values
-          if (extractedData.name) profileData.name = extractedData.name;
-          if (extractedData.age !== null && extractedData.age !== undefined)
-            profileData.age = extractedData.age;
-          if (extractedData.gender) profileData.gender = extractedData.gender;
-          if (
-            extractedData.currentWeight !== null &&
-            extractedData.currentWeight !== undefined
-          )
-            profileData.currentWeight = extractedData.currentWeight;
-          if (
-            extractedData.targetWeight !== null &&
-            extractedData.targetWeight !== undefined
-          )
-            profileData.targetWeight = extractedData.targetWeight;
-          if (
-            extractedData.height !== null &&
-            extractedData.height !== undefined
-          )
-            profileData.height = extractedData.height;
-          if (extractedData.activityLevel)
-            profileData.activityLevel = extractedData.activityLevel;
-          if (
-            extractedData.dietaryPreferences &&
-            extractedData.dietaryPreferences.length > 0
-          )
-            profileData.dietaryPreferences = extractedData.dietaryPreferences;
-
-          // Set goal type only if there's a target weight
-          if (extractedData.targetWeight) profileData.goalType = "Weight Loss";
-
-          // Now send only the fields with actual values to Firestore
-          await createOrUpdateUserProfile(session.user.id, profileData);
-
-          // Wait a moment to show the final message
-          setTimeout(() => {
-            // Redirect to dashboard
-            router.push("/dashboard");
-          }, 2000);
-        } catch (error) {
-          console.error("Error completing onboarding:", error);
-          setError(
-            "There was a problem saving your profile. Please try again."
-          );
-        }
-      };
-
-      completeOnboarding();
-    }
-  }, [isComplete, threadId, session?.user?.id, router, extractedData]);
 
   // Send message to assistant
   const handleSendMessage = async () => {
@@ -558,34 +499,60 @@ const ConversationalOnboarding = () => {
     const allText = msgs.map((msg) => msg.content).join(" ");
     const data: ExtractedUserData = {};
 
-    // Extract name - typically would be in the first user response
+    // Extract name - improved to handle more patterns
     const nameMatch = allText.match(
-      /my name is ([A-Za-z]+)|i'm ([A-Za-z]+)|i am ([A-Za-z]+)/i
+      /my name is ([A-Za-z]+)|i'm ([A-Za-z]+)|i am ([A-Za-z]+)|name:? ([A-Za-z]+)/i
     );
     if (nameMatch) {
-      data.name = nameMatch[1] || nameMatch[2] || nameMatch[3];
+      // Find the first non-undefined capture group
+      for (let i = 1; i < nameMatch.length; i++) {
+        if (nameMatch[i]) {
+          data.name = nameMatch[i];
+          break;
+        }
+      }
     }
 
-    // Extract weight
+    // Extract weight with improved pattern matching
     const weightMatch = allText.match(
-      /(\d+\.?\d*)\s*(kg|kilograms|pounds|lbs)/i
+      /(\d+\.?\d*)\s*(kg|kilograms|pounds|lbs)|weight:?\s*(\d+\.?\d*)|weigh\s*(\d+\.?\d*)|current weight:?\s*(\d+\.?\d*)/i
     );
     if (weightMatch) {
-      data.currentWeight = parseFloat(weightMatch[1]);
+      // Find first non-undefined number in capture groups
+      for (let i = 1; i < weightMatch.length; i++) {
+        if (weightMatch[i] && !isNaN(parseFloat(weightMatch[i]))) {
+          data.startingWeight = parseFloat(weightMatch[i]);
+          break;
+        }
+      }
     }
 
-    // Extract height
+    // Extract height with improved pattern
     const heightMatch = allText.match(
-      /(\d+\.?\d*)\s*(cm|centimeters|meters|m|feet|ft|foot|inches|in|'|")/i
+      /(\d+\.?\d*)\s*(cm|centimeters|meters|m|feet|ft|foot|inches|in|'|")|height:?\s*(\d+\.?\d*)|tall:?\s*(\d+\.?\d*)/i
     );
     if (heightMatch) {
-      data.height = parseFloat(heightMatch[1]);
+      // Find first non-undefined number in capture groups
+      for (let i = 1; i < heightMatch.length; i++) {
+        if (heightMatch[i] && !isNaN(parseFloat(heightMatch[i]))) {
+          data.height = parseFloat(heightMatch[i]);
+          break;
+        }
+      }
     }
 
-    // Extract age
-    const ageMatch = allText.match(/(\d+)\s*(years|year|yr|y.o.|years old)/i);
+    // Extract age with improved pattern
+    const ageMatch = allText.match(
+      /(\d+)\s*(years|year|yr|y\.o\.|years old)|age:?\s*(\d+)|i'm\s*(\d+)\s*(years|year|yr)/i
+    );
     if (ageMatch) {
-      data.age = parseInt(ageMatch[1]);
+      // Find first non-undefined number in capture groups
+      for (let i = 1; i < ageMatch.length; i++) {
+        if (ageMatch[i] && !isNaN(parseInt(ageMatch[i]))) {
+          data.age = parseInt(ageMatch[i]);
+          break;
+        }
+      }
     }
 
     // Extract activity level
@@ -613,6 +580,7 @@ const ConversationalOnboarding = () => {
       "mediterranean",
       "gluten-free",
       "dairy-free",
+      "omnivore",
     ];
     const dietPreferences = [];
     for (const diet of diets) {
@@ -624,30 +592,51 @@ const ConversationalOnboarding = () => {
       data.dietaryPreferences = dietPreferences;
     }
 
-    // Extract target weight
+    // Extract target weight with improved pattern
     const targetWeightMatch = allText.match(
-      /target weight .*?(\d+\.?\d*)|goal .*?(\d+\.?\d*)\s*(kg|kilograms|pounds|lbs)|reach .*?(\d+\.?\d*)\s*(kg|kilograms|pounds|lbs)|get down to .*?(\d+\.?\d*)\s*(kg|kilograms|pounds|lbs)/i
+      /target weight:?\s*(\d+\.?\d*)|goal:?\s*(\d+\.?\d*)\s*(kg|kilograms|pounds|lbs)|reach:?\s*(\d+\.?\d*)|get down to:?\s*(\d+\.?\d*)|lose weight to:?\s*(\d+\.?\d*)|goal weight:?\s*(\d+\.?\d*)/i
     );
     if (targetWeightMatch) {
-      const matchGroups = targetWeightMatch.filter(
-        (group) => group !== undefined
-      );
-      for (const group of matchGroups) {
-        if (!isNaN(parseFloat(group))) {
-          data.targetWeight = parseFloat(group);
+      // Find first non-undefined number in capture groups
+      for (let i = 1; i < targetWeightMatch.length; i++) {
+        if (targetWeightMatch[i] && !isNaN(parseFloat(targetWeightMatch[i]))) {
+          data.targetWeight = parseFloat(targetWeightMatch[i]);
           break;
         }
       }
     }
 
-    // Extract target date
+    // Extract target date with expanded patterns
     const dateRegex =
-      /by\s+(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|september|oct|october|nov|november|dec|december)\s+(\d{1,2})(?:st|nd|rd|th)?(?:\s*,\s*(\d{4}))?|by\s+(\d{1,2})(?:st|nd|rd|th)?\s+(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|september|oct|october|nov|november|dec|december)(?:\s*,\s*(\d{4}))?|in\s+(\d+)\s+(days|weeks|months|years)/i;
+      /by\s+(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|september|oct|october|nov|november|dec|december)\s+(\d{1,2})(?:st|nd|rd|th)?(?:\s*,\s*(\d{4}))?|by\s+(\d{1,2})(?:st|nd|rd|th)?\s+(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|september|oct|october|nov|november|dec|december)(?:\s*,\s*(\d{4}))?|in\s+(\d+)\s+(days|weeks|months|years)|by\s+([a-zA-Z]+)/i;
 
     const dateMatch = allText.match(dateRegex);
     if (dateMatch) {
-      // Just store the raw match for now, we can process it more precisely if needed
+      // Store the raw target date string
       data.targetDate = dateMatch[0];
+    }
+
+    // Special case for gender extraction
+    if (allText.match(/\b(male|man|guy|boy)\b/i)) {
+      data.gender = "male";
+    } else if (allText.match(/\b(female|woman|girl|lady)\b/i)) {
+      data.gender = "female";
+    } else if (allText.match(/\b(non-binary|nonbinary|enby)\b/i)) {
+      data.gender = "non-binary";
+    }
+
+    // Extract allergies
+    const allergiesMatch = allText.match(/allerg(y|ies|ic)\s+to\s+([^\.]+)/i);
+    if (allergiesMatch && allergiesMatch[2]) {
+      // Split allergies by commas and clean up
+      const allergiesList = allergiesMatch[2]
+        .split(/,|and/)
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0);
+
+      if (allergiesList.length > 0) {
+        data.allergies = allergiesList;
+      }
     }
 
     // Update extracted data

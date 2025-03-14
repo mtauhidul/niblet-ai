@@ -52,15 +52,17 @@ export interface WeightLog {
 interface WeightLogComponentProps {
   onWeightLogged?: () => void;
   showTitle?: boolean;
-  startWeight?: number;
+  startingWeight?: number;
   targetWeight?: number;
+  currentWeight?: number;
 }
 
 const WeightLogComponent = ({
   onWeightLogged,
   showTitle = true,
-  startWeight,
+  startingWeight,
   targetWeight,
+  currentWeight,
 }: WeightLogComponentProps) => {
   const { data: session } = useSession();
   const [isLoading, setIsLoading] = useState(false);
@@ -118,20 +120,20 @@ const WeightLogComponent = ({
     if (weightLogs.length > 0) {
       return weightLogs[0].weight;
     }
-    return startWeight || 0;
+    return startingWeight || 0;
   };
 
   const currentWeightValue = getCurrentWeight();
 
   const calculateProgressPercentage = () => {
-    if (!targetWeight || !startWeight || startWeight === targetWeight) {
+    if (!targetWeight || !startingWeight || startingWeight === targetWeight) {
       return 0;
     }
 
-    const totalToLose = Math.abs(startWeight - targetWeight);
+    const totalToLose = Math.abs(startingWeight - targetWeight);
     if (totalToLose === 0) return 100; // Already at target
 
-    const amountLost = Math.abs(startWeight - currentWeightValue);
+    const amountLost = Math.abs(startingWeight - currentWeightValue);
     const percentage = (amountLost / totalToLose) * 100;
 
     // Ensure the percentage is between 0 and 100
@@ -142,9 +144,11 @@ const WeightLogComponent = ({
 
   // Format progress based on goal (loss or gain)
   const isWeightLoss =
-    targetWeight && startWeight ? targetWeight < startWeight : true;
+    targetWeight && startingWeight ? targetWeight < startingWeight : true;
   const weightChange =
-    startWeight && currentWeightValue ? startWeight - currentWeightValue : 0;
+    startingWeight && currentWeightValue
+      ? startingWeight - currentWeightValue
+      : 0;
   const formattedChange = isWeightLoss ? weightChange : -weightChange;
 
   // Load weight logs when component mounts or session changes
@@ -376,22 +380,24 @@ const WeightLogComponent = ({
           </Button>
         </CardHeader>
         <CardContent>
-          {targetWeight && startWeight && (
+          {targetWeight && startingWeight && (
             <div className="mb-4">
               <div className="flex justify-between text-sm text-gray-500 mb-1">
                 <span>Progress toward goal</span>
                 <span>
-                  {startWeight !== targetWeight
+                  {startingWeight !== targetWeight
                     ? `${Math.round(progressPercentage)}%`
                     : "Goal reached"}
                 </span>
               </div>
               <Progress
-                value={startWeight !== targetWeight ? progressPercentage : 100}
+                value={
+                  startingWeight !== targetWeight ? progressPercentage : 100
+                }
                 className="h-2"
               />
               <div className="flex justify-between text-xs text-gray-500 mt-1">
-                <span>Start: {startWeight} lbs</span>
+                <span>Start: {startingWeight} lbs</span>
                 <span>Goal: {targetWeight} lbs</span>
               </div>
               {weightChange !== 0 && (

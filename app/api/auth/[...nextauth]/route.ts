@@ -1,3 +1,5 @@
+// app/api/auth/[...nextauth]/route.ts
+import { emailExists } from "@/lib/auth/authService";
 import NextAuth from "next-auth";
 import FacebookProvider from "next-auth/providers/facebook";
 import GoogleProvider from "next-auth/providers/google";
@@ -6,10 +8,14 @@ import GoogleProvider from "next-auth/providers/google";
 declare module "next-auth" {
   interface Session {
     isNewUser?: boolean;
+    user: {
+      id?: string | null;
+      name?: string | null;
+      email?: string | null;
+      image?: string | null;
+    };
   }
 }
-
-// In app/api/auth/[...nextauth]/route.ts
 
 const handler = NextAuth({
   providers: [
@@ -29,10 +35,30 @@ const handler = NextAuth({
   ],
   pages: {
     signIn: "/auth/signin",
-    error: "/auth/error",
-    newUser: "/onboarding", // This is already correct
+    error: "/auth/error", // This is key to make sure errors are handled properly
+    newUser: "/onboarding", // Only for new users
   },
   callbacks: {
+    async signIn({ user, account, profile }) {
+      try {
+        // Only perform this check for OAuth sign-ins
+        if (account?.provider && user.email) {
+          // Check if this email already exists
+          const userExists = await emailExists(user.email);
+
+          if (userExists) {
+            // This email already exists in our system
+            return `/auth/error?error=EmailAlreadyExists`;
+          }
+        }
+
+        // Allow sign in
+        return true;
+      } catch (error) {
+        console.error("Error in signIn callback:", error);
+        return `/auth/error?error=SignInError`;
+      }
+    },
     async jwt({ token, account, user, profile, isNewUser }) {
       // Initial sign in
       if (account && user) {
@@ -52,11 +78,15 @@ const handler = NextAuth({
       return session;
     },
     async redirect({ url, baseUrl }) {
-      // Check if this is a new user
-      if (
-        url.startsWith(`${baseUrl}/auth/signin`) &&
-        (url.includes("?isNewUser=true") || url.includes("&isNewUser=true"))
-      ) {
+      // Important: Fix the redirect logic for error cases
+
+      // If url contains an error, make sure we handle it properly
+      if (url.includes("/auth/error")) {
+        return url; // Keep the error URL as is
+      }
+
+      // Check if this is a new user going to onboarding
+      if (url.includes("isNewUser=true")) {
         return `${baseUrl}/onboarding`;
       }
 

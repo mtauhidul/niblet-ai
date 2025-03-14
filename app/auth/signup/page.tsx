@@ -40,18 +40,68 @@ export default function SignUpPage() {
     }
   }, [searchParams, mounted]);
 
-  // Handle Google sign in directly with NextAuth
+  // Handle Google sign in
   const handleGoogleSignIn = async () => {
     try {
       setIsGoogleLoading(true);
       setIsLoading(true);
-      // Use the standard NextAuth signIn method, redirect to onboarding for new users
-      await signIn("google", { callbackUrl: "/onboarding" });
-      // No need to handle success as NextAuth will redirect
+      setError(""); // Clear any existing errors
+
+      // Use signIn with redirect: false to get the result
+      const result = await signIn("google", {
+        callbackUrl: "/dashboard",
+        redirect: false, // Don't automatically redirect
+      });
+
+      // Handle result
+      if (result?.error) {
+        // Handle specific errors
+        if (result.error === "EmailAlreadyExists") {
+          setError(
+            "An account with this email already exists. Please sign in instead."
+          );
+        } else {
+          setError("Failed to sign up with Google. Please try again.");
+        }
+        setIsGoogleLoading(false);
+        setIsLoading(false);
+      } else if (result?.url) {
+        // Success case - follow the redirect URL
+        router.push(result.url);
+      }
     } catch (error) {
       console.error("Error signing up:", error);
-      setError("Failed to sign up with Google");
+      setError("Failed to sign up with Google. Please try again.");
       setIsGoogleLoading(false);
+      setIsLoading(false);
+    }
+  };
+
+  // Handle Facebook sign in (similar to Google)
+  const handleFacebookSignIn = async () => {
+    try {
+      setIsLoading(true);
+
+      const result = await signIn("facebook", {
+        callbackUrl: "/dashboard",
+        redirect: false,
+      });
+
+      if (result?.error) {
+        if (result.error === "EmailAlreadyExists") {
+          setError(
+            "An account with this email already exists. Please sign in instead."
+          );
+        } else {
+          setError("Failed to sign up with Facebook. Please try again.");
+        }
+        setIsLoading(false);
+      } else if (result?.url) {
+        router.push(result.url);
+      }
+    } catch (error) {
+      console.error("Error signing up:", error);
+      setError("Failed to sign up with Facebook. Please try again.");
       setIsLoading(false);
     }
   };
@@ -85,6 +135,16 @@ export default function SignUpPage() {
           {error && (
             <div className="mb-4 p-3 bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200 rounded-md text-sm">
               {error}
+              {error.includes("already exists") && (
+                <div className="mt-2">
+                  <Link
+                    href="/auth/signin"
+                    className="text-blue-500 hover:underline"
+                  >
+                    Go to Sign In
+                  </Link>
+                </div>
+              )}
             </div>
           )}
 
@@ -127,11 +187,12 @@ export default function SignUpPage() {
               {isGoogleLoading ? "Signing up..." : "Sign up with Google"}
             </Button>
 
-            {/* Facebook Sign Up Button - Disabled Placeholder */}
+            {/* Facebook Sign Up Button */}
             <Button
               variant="outline"
               className="w-full flex items-center justify-center gap-2"
-              onClick={() => signIn("facebook", { callbackUrl: "/dashboard" })}
+              onClick={handleFacebookSignIn}
+              disabled={isLoading}
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -140,7 +201,9 @@ export default function SignUpPage() {
               >
                 <path d="M279.14 288l14.22-92.66h-88.91v-60.13c0-25.35 12.42-50.06 52.24-50.06h40.42V6.26S260.43 0 225.36 0c-73.22 0-121.08 44.38-121.08 124.72v70.62H22.89V288h81.39v224h100.17V288z" />
               </svg>
-              Continue with Facebook
+              {isLoading && !isGoogleLoading
+                ? "Signing up..."
+                : "Continue with Facebook"}
             </Button>
           </div>
 

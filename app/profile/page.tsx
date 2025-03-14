@@ -36,6 +36,7 @@ export default function ProfilePage() {
     age: "",
     gender: "",
     height: "",
+    startingWeight: "",
     currentWeight: "",
     targetWeight: "",
     targetDate: "",
@@ -45,6 +46,10 @@ export default function ProfilePage() {
     receiveNotifications: true,
     preferredMealFrequency: "3",
   });
+
+  useEffect(() => {
+    console.log(profileData);
+  }, [profileData]);
 
   // Set mounted state to prevent hydration issues
   useEffect(() => {
@@ -85,6 +90,7 @@ export default function ProfilePage() {
           age: userProfile.age?.toString() || "",
           gender: userProfile.gender || "",
           height: userProfile.height?.toString() || "",
+          startingWeight: userProfile.startingWeight?.toString() || "",
           currentWeight: userProfile.currentWeight?.toString() || "",
           targetWeight: userProfile.targetWeight?.toString() || "",
           targetDate: userProfile.targetDate || "",
@@ -106,6 +112,7 @@ export default function ProfilePage() {
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
+    console.log(name, value);
     setProfileData((prev) => ({ ...prev, [name]: value }));
   };
 
@@ -218,9 +225,9 @@ export default function ProfilePage() {
                   <div className="space-y-2">
                     <Label htmlFor="currentWeight">Current Weight (lbs)</Label>
                     <Input
-                      id="currentWeight"
-                      name="currentWeight"
-                      value={profileData.currentWeight}
+                      id="startingWeight"
+                      name="startingWeight"
+                      value={profileData.startingWeight}
                       onChange={handleInputChange}
                       type="number"
                       step="0.1"

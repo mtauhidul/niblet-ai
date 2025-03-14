@@ -22,6 +22,8 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    console.log("User profile", userProfile);
+
     return NextResponse.json(userProfile);
   } catch (error) {
     if (error instanceof Error) {
@@ -50,6 +52,7 @@ export async function PATCH(request: NextRequest) {
     const profileUpdate = {
       age: data.age,
       gender: data.gender,
+      startingWeight: data.startingWeight,
       currentWeight: data.currentWeight,
       targetWeight: data.targetWeight,
       height: data.height,
@@ -62,7 +65,7 @@ export async function PATCH(request: NextRequest) {
       targetCarbs: data.targetCarbs,
       targetFat: data.targetFat,
       aiPersonality: data.aiPersonality,
-      // New fields
+      targetDate: data.targetDate,
       receiveNotifications: data.receiveNotifications,
       preferredMealFrequency: data.preferredMealFrequency,
     };

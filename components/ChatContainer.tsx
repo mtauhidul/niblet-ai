@@ -154,7 +154,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
             toolArgs.date ? new Date(toolArgs.date) : undefined
           );
           // Also update user profile with current weight
-          await createOrUpdateUserProfile(session.user.id, {
+          await createOrUpdateUserProfile(session.user.id!, {
             currentWeight: toolArgs.weight,
           });
           onWeightLogged?.();
@@ -324,7 +324,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
           setAssistantId(newAssistantId);
           onThreadInitialized?.(newThreadId, newAssistantId);
 
-          await createOrUpdateUserProfile(session.user.id, {
+          await createOrUpdateUserProfile(session.user.id!, {
             threadId: newThreadId,
             assistantId: newAssistantId,
             aiPersonality: aiPersonality,

@@ -18,10 +18,12 @@ export interface User {
 }
 
 export interface UserProfile {
+  id: string;
   name?: string;
   userId: string;
   age?: number;
   gender?: string;
+  startingWeight?: number;
   currentWeight?: number;
   targetWeight?: number;
   height?: number;
